@@ -1,3 +1,34 @@
+----
+tagline: a little stack/functional/array programming language
+----
+
+## `local lil = require'lilikoi'`
+
+Lilikoi is a brand-new programming language with bits and pieces drawn from
+concatenative (also called stack), functional, and array programming families.
+It translates to LuaJIT's dialect of Lua, and uses LuaJIT's FFI extensively.
+
+## API
+
+------------------------------------------ ----------------------
+`lil.translate(code) -> result | nil,err`  translate to lua
+`lil.run(code) -> nil | nil,err`           run code directly
+------------------------------------------ ----------------------
+
+### `lil.translate(code) -> result | nil,err`
+
+Translates a piece of lilikoi code, given as a string, to a string
+of lua code as a result.
+Raises an error if it fails.
+
+### `lil.run(code) -> true | nil,err`
+
+Translates a piece of lilikoi code, given as a string, to lua and
+immediately evaluates that lua code, returning true if it succeeds.
+Raises an error if it fails.
+
+## LICENSE
+
 This is free and unencumbered software released into the public domain.
 
 Anyone is free to copy, modify, publish, use, compile, sell, or
@@ -21,5 +52,5 @@ OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 
-For more information, please refer to <http://unlicense.org>
+For more information, please refer to [the Unlicense site](http://unlicense.org)
 
