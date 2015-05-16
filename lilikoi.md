@@ -1,6 +1,7 @@
-----
+---
+project: lilikoi
 tagline: a little stack/functional/array programming language
-----
+---
 
 ## `local lil = require'lilikoi'`
 

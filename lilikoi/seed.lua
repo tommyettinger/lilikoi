@@ -5,35 +5,35 @@
 local seed = {}
 
 -- runs a partial function once it has been supplied all needed args,
--- returning its result, if any, or returns a new partial function
--- if not supplied enough args. handles grouping as well.
-function seed.__step(f, a)
+-- which are stored in given. returns the function's result, if it has one,
+-- or if it has not been supplied enough args, it returns the function
+-- and a larger list of given args. handles grouping as well.
+function seed.__step(f, given, arg)
 	if a == nil then
-		if #(f["\6args"]) == f["\6arity"] then
-			return f["\6op"](unpack(f["\6args"]))
+		if #given == f["\6arity"] then
+			return f["\6op"](unpack(given)), "\0"
 		else
-			return f
+			return f, given
 		end
 	end
-	local f2 = table.deepcopy(f)
-	if f2["\6group"] == a then
-		return f2["\6op"](unpack(f2["\6args"]))
-	elseif f2["\6group"] ~= nil or
-			#(f2["\6args"]) < f2["\6arity"] then
-		table.insert(f2["\6args"], a)
+	if f["\6group"] == arg then
+		return f["\6op"](unpack(given)), "\0"
+	elseif f["\6group"] ~= nil or
+			#given < f["\6arity"] then
+		table.insert(given, arg)
 	end
-	if #(f2["\6args"]) == f2["\6arity"] then
-		return f2["\6op"](unpack(f2["\6args"]))
+	if #given == f["\6arity"] then
+		return f["\6op"](unpack(given)), "\0"
 	end
-	return f2
+	return f, given
 end
 
 
-local function helper(a, i)
+local function ap_helper(a, i)
   if i < a.n then return i+1,a[i+1] end
 end
 local function apairs(...)
-  return helper, {n=select('#', ...), ...}, 0
+  return ap_helper, {n=select('#', ...), ...}, 0
 end
 
 -- takes a sequence of generated function tables and data, and
@@ -41,27 +41,44 @@ end
 -- returning the final stack.
 function seed.__eval(...)
 	local stack = {}
+	local sexps = {}
 	for i,a in apairs(...) do
 		if type(a) == 'table' and a["\6op"] ~= nil then
-			stack[#stack] = seed.__step(a, stack[#stack])
+			-- if we have just started executing a function,
+			-- replace the top of the stack with the function called
+			-- with the content of the top of the stack.
+			local g
+			stack[#stack], g = seed.__step(a, {}, stack[#stack])
+			if(g ~= "\0") then
+				sexps[#sexps + 1] = {op=a, unpack(g)}
+			end
+		elseif type(stack[#stack]) == 'table' and stack[#stack]["\6op"] ~= nil then
+			-- if we are continuing a function that is on the stack,
+			-- replace the top of the stack with the function called
+			-- with the latest item received.
+			local g
+			stack[#stack], g = seed.__step(stack[#stack], sexps[#sexps], a)
+			if(g ~= "\0") then
+				sexps[#sexps] = {op=stack[#stack], unpack(g)}
+			else
+				table.remove(sexps)
+			end
 		else
-			stack[#stack] = a
+			-- if we are not continuing or starting a function,
+			-- append a piece of data to the stack.
+			stack[#stack + 1] = a
 		end
 	end
+	return stack
 end
 local function coredef(op, arity, show, ender)
 	return {["\6op"] = op,
 			["\6arity"] = arity,
 			["\6name"] = show,
 			["\6group"] = ender,
-			["\6args"] = {}}
+			}
 end
---[[
-	+     -     *     /     %     ^     #
-	==    ~=    <=    >=    <     >     =
-	(     )     {     }     [     ]
-	;no   :     ,no   .     ..    ...no
---]]
+
 local function add(a, b)
 	return a + b
 end
@@ -110,10 +127,10 @@ local function gteq(a, b)
 	return a >= b
 end
 seed.__gteq = coredef(gteq, 2, ">=")
-local function conc(a, b)
+local function concat(a, b)
 	return a .. b
 end
-seed.__conc = coredef(conc, 2, "..")
+seed.__concat = coredef(concat, 2, "..")
 
 seed.__par = coredef(seed.__eval, -1, "(", ")")
 
