@@ -39,3 +39,24 @@ luac.out
 *.x86_64
 *.hex
 
+# multigit checkout
+.mgit/*/
+bin/**
+csrc/**
+media/**
+jit/**
+lpeg/**
+socket/**
+syscall/**
+/*.dasl
+/*.lua
+/*.md
+!README.md
+!lilikoi.md
+!lilikoi.lua
+!lilikoi_test.lua
+
+# jEdit garbage
+*~
+*#*#
+*#*.*#

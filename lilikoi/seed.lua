@@ -44,13 +44,30 @@ function seed.__eval(...)
 	local sexps = {}
 	for i,a in apairs(...) do
 		if type(a) == 'table' and a["\6op"] ~= nil then
+			if type(stack[#stack]) == 'table' and stack[#stack]["\6op"] ~= nil and
+					stack[#stack]["\6quote"] ~= nil then
+				-- if we are continuing a function that is on the stack,
+				-- and that function quotes its arguments, disregard
+				-- starting any new functions and put the quoted stuff
+				-- on the stack. Do the normal behavior for continuing,
+				-- replace the top of the stack with the quoting function
+				-- with the latest item received.
+				local g
+				stack[#stack], g = seed.__step(stack[#stack], sexps[#sexps], a)
+				if(g ~= "\0") then
+					sexps[#sexps] = {op=stack[#stack], unpack(g)}
+				else
+					table.remove(sexps)
+				end
+			else
 			-- if we have just started executing a function,
 			-- replace the top of the stack with the function called
 			-- with the content of the top of the stack.
-			local g
-			stack[#stack], g = seed.__step(a, {}, stack[#stack])
-			if(g ~= "\0") then
-				sexps[#sexps + 1] = {op=a, unpack(g)}
+				local g
+				stack[#stack], g = seed.__step(a, {}, stack[#stack])
+				if(g ~= "\0") then
+					sexps[#sexps + 1] = {op=a, unpack(g)}
+				end
 			end
 		elseif type(stack[#stack]) == 'table' and stack[#stack]["\6op"] ~= nil then
 			-- if we are continuing a function that is on the stack,
@@ -71,11 +88,12 @@ function seed.__eval(...)
 	end
 	return stack
 end
-local function coredef(op, arity, show, ender)
+local function coredef(op, arity, show, ender, quote)
 	return {["\6op"] = op,
 			["\6arity"] = arity,
 			["\6name"] = show,
 			["\6group"] = ender,
+			["\6quote"] = quote,
 			}
 end
 
