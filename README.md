@@ -1,4 +1,4 @@
-### lilikoi
+# lilikoi
 
 ## a little stack/functional/array programming language
 
@@ -21,7 +21,7 @@ for all their hard work!
 
 ## API
 
-# `local lil = require'lilikoi'`
+### `local lil = require'lilikoi'`
 ------------------------------------------ ----------------------
 `lil.translate(code) -> result | nil,err`  translate to lua
 `lil.run(code) -> nil | nil,err`           run code directly
@@ -38,6 +38,22 @@ Raises an error if it fails.
 Translates a piece of lilikoi code, given as a string, to lua and
 immediately evaluates that lua code, returning true if it succeeds.
 Raises an error if it fails.
+
+## FAQ
+
+ * What does the name mean?
+ * Lilikoi is the Hawaiian word for passionfruit,
+   and I had just eaten some excellent passionfruit ice cream when I started
+   thinking about ways to solve some core design challenges of this language.
+   Also, it's a lil' language.
+ * Any credits to mention?
+ * Lewis Campbell came up with the original idea of a curried stack language,
+   and I decided to use a similar core concept with a different implementation.
+   Joshua Day, Risto Saarelma, Derrick Creamer, and the other helpful folk
+   of #rgrd helped clarify many rough patches in the language idea.
+   Alan Malloy, Gary Fredericks, Justin Smith, and the rest of the wonderful
+   #clojure community also have contributed in various ways to me being able
+   to make this.
 
 ## LICENSE
 
