@@ -6,7 +6,7 @@ tagline: a little stack/functional/array programming language
 
 Lilikoi is a brand-new programming language with bits and pieces drawn from
 concatenative (also called stack), functional, and array programming families.
-It translates to LuaJIT's dialect of Lua, and uses LuaJIT's FFI extensively.
+It translates to LuaJIT's dialect of Lua.
 
 ## API
 

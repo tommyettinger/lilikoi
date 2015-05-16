@@ -1,12 +1,12 @@
 
--- lilikoi/tokenizer: an internal module for tokenizing lilikoi.
+-- lilikoi/parser: an internal module for parsing lilikoi.
 -- Written by Tommy Ettinger. Public Domain.
 
-local tokenizer = {}
+local parser = {}
 
 -- returns an iterator function that splits on any whitespace or commas.
-function tokenizer.split(s)
+function parser.tokenize(s)
     return string.gmatch(s, "[^%s,]+")
 end
 
-return tokenizer
+return parser
