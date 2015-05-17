@@ -3,6 +3,7 @@
 -- Written by Tommy Ettinger. Public Domain.
 
 local seed = {}
+local glue = require'glue'
 
 -- runs a partial function once it has been supplied all needed args,
 -- which are stored in given. returns the function's result, if it has one,
@@ -88,68 +89,30 @@ function seed.__eval(...)
 	end
 	return stack
 end
-local function coredef(op, arity, show, ender, quote)
+local function coredef(op, arity, show, ender)
 	return {["\6op"] = op,
 			["\6arity"] = arity,
 			["\6name"] = show,
 			["\6group"] = ender,
-			["\6quote"] = quote,
 			}
 end
 
-local function add(a, b)
-	return a + b
-end
-seed.__add = coredef(add, 2, "+")
-local function sub(a, b)
-	return a - b
-end
-seed.__sub = coredef(sub, 2, "-")
-local function mul(a, b)
-	return a * b
-end
-seed.__mul = coredef(mul, 2, "*")
-local function div(a, b)
-	return a / b
-end
-seed.__div = coredef(div, 2, "/")
-local function pow(a, b)
-	return a ^ b
-end
-seed.__pow = coredef(pow, 2, "^")
-local function mod(a, b)
-	return a % b
-end
-seed.__mod = coredef(mod, 2, "%")
-local function eq(a, b)
-	return a == b
-end
-seed.__eq = coredef(eq, 2, "=")
-local function noteq(a, b)
-	return a ~= b
-end
-seed.__noteq = coredef(noteq, 2, "!=")
-local function lt(a, b)
-	return a < b
-end
-seed.__lt = coredef(lt, 2, "<")
-local function lteq(a, b)
-	return a <= b
-end
-seed.__lteq = coredef(lteq, 2, "<=")
-local function gt(a, b)
-	return a > b
-end
-seed.__gt = coredef(gt, 2, ">")
-local function gteq(a, b)
-	return a >= b
-end
-seed.__gteq = coredef(gteq, 2, ">=")
-local function concat(a, b)
-	return a .. b
-end
-seed.__concat = coredef(concat, 2, "..")
-
 seed.__par = coredef(seed.__eval, -1, "(", ")")
 
-return seed
+return glue.autoload(seed,
+{
+   __add = 'operators',
+   __sub = 'operators',
+   __mul = 'operators',
+   __div = 'operators',
+   __pow = 'operators',
+   __mod = 'operators',
+   __eq = 'operators',
+   __bang__eq = 'operators',
+   __lt = 'operators',
+   __lt__eq = 'operators',
+   __gt = 'operators',
+   __gt__eq = 'operators',
+   concat = 'operators',
+   
+})
