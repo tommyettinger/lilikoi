@@ -6,22 +6,36 @@ local seed = {}
 local glue = require'glue'
 local va = require'vararg'
 local pp = require'pp'
+
+local nests = {}
+
 -- runs a partial function once it has been supplied all needed args,
 -- which are stored in given. returns the function's result, if it has one,
 -- or if it has not been supplied enough args, it returns the function
 -- and a larger list of given args. handles grouping as well.
 function seed.__step(f, given, arg)
 	if arg == nil then
+		if f["\6group"] then
+			nests[#nests + 1] = f["\6group"]
+		end
 		if #given == f["\6arity"] then
 			return f["\6op"](unpack(given)), "\0"
 		else
 			return f, given
 		end
 	end
-	if type(arg) == 'table' and arg["\6op"] ~= nil and f["\6group"] == arg["\6name"] then
-		return f["\6op"](unpack(given)), "\0"
-	elseif f["\6group"] ~= nil or #given < f["\6arity"] then
-		table.insert(given, arg)
+	if type(arg) == 'table' and arg["\6op"] and nests[#nests] == arg["\6name"] then
+		table.remove(nests)
+		if #nests == 0 then
+			return f["\6op"](unpack(given)), "\0"
+		else
+			given[#given + 1] = arg
+		end
+	elseif type(arg) == 'table' and arg["\6op"] and arg["\6group"] then
+		nests[#nests + 1] = arg["\6group"]
+		given[#given + 1] = arg
+	elseif f["\6group"] or #given < f["\6arity"] then
+		given[#given + 1] = arg
 	end
 	if #given == f["\6arity"] then
 		return f["\6op"](unpack(given)), "\0"
@@ -41,9 +55,9 @@ function seed.__eval(...)
 		-- consume any tokens that were used
 		local a = table.remove(ahead)
 		
-		if type(a) == 'table' and a["\6op"] ~= nil then
-			if type(stack[#stack]) == 'table' and stack[#stack]["\6op"] ~= nil and
-					stack[#stack]["\6quote"] ~= nil then
+		if type(a) == 'table' and a["\6op"] then
+			if type(stack[#stack]) == 'table' and stack[#stack]["\6op"] and
+					stack[#stack]["\6quote"] then
 				-- if we are continuing a function that is on the stack,
 				-- and that function quotes its arguments, disregard
 				-- starting any new functions and put the quoted stuff
@@ -60,7 +74,7 @@ function seed.__eval(...)
 					table.insert(ahead, r)
 					table.remove(sexps)
 				end
-			elseif a["\6group"] ~= nil then
+			elseif a["\6group"] then
 			-- if we have just started executing a grouping function,
 			-- ignore the current stack and start the grouping.
 				local g
@@ -80,7 +94,7 @@ function seed.__eval(...)
 					sexps[#sexps + 1] = g
 				end
 			end
-		elseif type(stack[#stack]) == 'table' and stack[#stack]["\6op"] ~= nil then
+		elseif type(stack[#stack]) == 'table' and stack[#stack]["\6op"] then
 			-- if we are continuing a function that is on the stack,
 			-- replace the top of the stack with the function called
 			-- with the latest item received.			
