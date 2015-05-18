@@ -4,6 +4,7 @@
 
 local seed = {}
 local glue = require'glue'
+local va = require'vararg'
 
 -- runs a partial function once it has been supplied all needed args,
 -- which are stored in given. returns the function's result, if it has one,
@@ -17,7 +18,7 @@ function seed.__step(f, given, arg)
 			return f, given
 		end
 	end
-	if f["\6group"] == arg then
+	if type(arg) == 'table' and arg["\6op"] ~= nil and f["\6group"] == arg["\6name"] then
 		return f["\6op"](unpack(given)), "\0"
 	elseif f["\6group"] ~= nil or
 			#given < f["\6arity"] then
@@ -29,21 +30,14 @@ function seed.__step(f, given, arg)
 	return f, given
 end
 
-
-local function ap_helper(a, i)
-  if i < a.n then return i+1,a[i+1] end
-end
-local function apairs(...)
-  return ap_helper, {n=select('#', ...), ...}, 0
-end
-
 -- takes a sequence of generated function tables and data, and
 -- steps through it until it has exhausted the sequence,
 -- returning the final stack.
 function seed.__eval(...)
+	local v = va.pack(...)
 	local stack = {}
 	local sexps = {}
-	for i,a in apairs(...) do
+	for i,a in v do
 		if type(a) == 'table' and a["\6op"] ~= nil then
 			if type(stack[#stack]) == 'table' and stack[#stack]["\6op"] ~= nil and
 					stack[#stack]["\6quote"] ~= nil then
@@ -67,7 +61,8 @@ function seed.__eval(...)
 				local g
 				stack[#stack], g = seed.__step(a, {}, stack[#stack])
 				if(g ~= "\0") then
-					sexps[#sexps + 1] = {op=a, unpack(g)}
+					g.op = a
+					sexps[#sexps + 1] = g
 				end
 			end
 		elseif type(stack[#stack]) == 'table' and stack[#stack]["\6op"] ~= nil then
@@ -77,7 +72,8 @@ function seed.__eval(...)
 			local g
 			stack[#stack], g = seed.__step(stack[#stack], sexps[#sexps], a)
 			if(g ~= "\0") then
-				sexps[#sexps] = {op=stack[#stack], unpack(g)}
+				g.op = stack[#stack]
+				sexps[#sexps] = g
 			else
 				table.remove(sexps)
 			end
@@ -89,7 +85,7 @@ function seed.__eval(...)
 	end
 	return stack
 end
-local function coredef(op, arity, show, ender)
+function seed.__def(op, arity, show, ender)
 	return {["\6op"] = op,
 			["\6arity"] = arity,
 			["\6name"] = show,
@@ -97,22 +93,32 @@ local function coredef(op, arity, show, ender)
 			}
 end
 
-seed.__par = coredef(seed.__eval, -1, "(", ")")
+function seed.__sequence(...)
+	return {...}
+end
+
+seed["("] = seed.__def(seed.__eval, -1, "(", ")")
+
+seed[")"] = seed.__def(glue.pass, 0, ")")
+
+seed["["] = seed.__def(seed.__sequence, -1, "[", "]")
+
+seed["]"] = seed.__def(glue.pass, 0, "]")
 
 return glue.autoload(seed,
 {
-   __add = 'operators',
-   __sub = 'operators',
-   __mul = 'operators',
-   __div = 'operators',
-   __pow = 'operators',
-   __mod = 'operators',
-   __eq = 'operators',
-   __bang__eq = 'operators',
-   __lt = 'operators',
-   __lt__eq = 'operators',
-   __gt = 'operators',
-   __gt__eq = 'operators',
-   concat = 'operators',
+   ["+"] = 'lilikoi.operators',
+   ["-"] = 'lilikoi.operators',
+   ["*"] = 'lilikoi.operators',
+   ["/"] = 'lilikoi.operators',
+   ["^"] = 'lilikoi.operators',
+   ["\5mod"] = 'lilikoi.operators',
+   ["="] = 'lilikoi.operators',
+   ["!="] = 'lilikoi.operators',
+   ["<"] = 'lilikoi.operators',
+   ["<="] = 'lilikoi.operators',
+   [">"] = 'lilikoi.operators',
+   [">="] = 'lilikoi.operators',
+   concat = 'lilikoi.operators',
    
 })
