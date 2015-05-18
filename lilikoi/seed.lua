@@ -84,12 +84,11 @@ function seed.__eval(...)
 			-- if we are continuing a function that is on the stack,
 			-- replace the top of the stack with the function called
 			-- with the latest item received.			
-			local g, r
+			local g
 			stack[#stack], g = seed.__step(stack[#stack], sexps[#sexps], a)
 			if(g ~= "\0") then
 				sexps[#sexps] = g
 			else
-				table.insert(ahead, r)
 				table.remove(sexps)
 			end
 		else
