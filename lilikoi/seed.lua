@@ -5,13 +5,13 @@
 local seed = {}
 local glue = require'glue'
 local va = require'vararg'
-
+local pp = require'pp'
 -- runs a partial function once it has been supplied all needed args,
 -- which are stored in given. returns the function's result, if it has one,
 -- or if it has not been supplied enough args, it returns the function
 -- and a larger list of given args. handles grouping as well.
 function seed.__step(f, given, arg)
-	if a == nil then
+	if arg == nil then
 		if #given == f["\6arity"] then
 			return f["\6op"](unpack(given)), "\0"
 		else
@@ -20,8 +20,7 @@ function seed.__step(f, given, arg)
 	end
 	if type(arg) == 'table' and arg["\6op"] ~= nil and f["\6group"] == arg["\6name"] then
 		return f["\6op"](unpack(given)), "\0"
-	elseif f["\6group"] ~= nil or
-			#given < f["\6arity"] then
+	elseif f["\6group"] ~= nil or #given < f["\6arity"] then
 		table.insert(given, arg)
 	end
 	if #given == f["\6arity"] then
@@ -29,15 +28,19 @@ function seed.__step(f, given, arg)
 	end
 	return f, given
 end
-
+-- the full list of unconsumed tokens.
+----seed.__ahead = nil
 -- takes a sequence of generated function tables and data, and
 -- steps through it until it has exhausted the sequence,
 -- returning the final stack.
 function seed.__eval(...)
-	local v = va.pack(...)
+	local ahead = glue.reverse({...})
 	local stack = {}
 	local sexps = {}
-	for i,a in v do
+	while #ahead > 0 do
+		-- consume any tokens that were used
+		local a = table.remove(ahead)
+		
 		if type(a) == 'table' and a["\6op"] ~= nil then
 			if type(stack[#stack]) == 'table' and stack[#stack]["\6op"] ~= nil and
 					stack[#stack]["\6quote"] ~= nil then
@@ -47,34 +50,46 @@ function seed.__eval(...)
 				-- on the stack. Do the normal behavior for continuing,
 				-- replace the top of the stack with the quoting function
 				-- with the latest item received.
-				local g
-				stack[#stack], g = seed.__step(stack[#stack], sexps[#sexps], a)
+				local g, r
+				r, g = seed.__step(stack[#stack], sexps[#sexps], a)
 				if(g ~= "\0") then
-					sexps[#sexps] = {op=stack[#stack], unpack(g)}
+					stack[#stack] = r
+					sexps[#sexps] = g
 				else
+					table.remove(stack)
+					table.insert(ahead, r)
 					table.remove(sexps)
+				end
+			elseif a["\6group"] ~= nil then
+			-- if we have just started executing a grouping function,
+			-- ignore the current stack and start the grouping.
+				local g
+				stack[#stack + 1], g = seed.__step(a, {}, nil)
+				if(g ~= "\0") then
+					sexps[#sexps + 1] = g
 				end
 			else
 			-- if we have just started executing a function,
 			-- replace the top of the stack with the function called
 			-- with the content of the top of the stack.
 				local g
-				stack[#stack], g = seed.__step(a, {}, stack[#stack])
+				local start = #stack
+				if start == 0 then start = 1 end
+				stack[start], g = seed.__step(a, {}, stack[#stack])
 				if(g ~= "\0") then
-					g.op = a
 					sexps[#sexps + 1] = g
 				end
 			end
 		elseif type(stack[#stack]) == 'table' and stack[#stack]["\6op"] ~= nil then
 			-- if we are continuing a function that is on the stack,
 			-- replace the top of the stack with the function called
-			-- with the latest item received.
-			local g
+			-- with the latest item received.			
+			local g, r
 			stack[#stack], g = seed.__step(stack[#stack], sexps[#sexps], a)
 			if(g ~= "\0") then
-				g.op = stack[#stack]
 				sexps[#sexps] = g
 			else
+				table.insert(ahead, r)
 				table.remove(sexps)
 			end
 		else
@@ -83,13 +98,15 @@ function seed.__eval(...)
 			stack[#stack + 1] = a
 		end
 	end
+	if #stack == 1 then return stack[1] end
 	return stack
 end
-function seed.__def(op, arity, show, ender)
+function seed.__def(op, arity, show, ender, quote)
 	return {["\6op"] = op,
 			["\6arity"] = arity,
 			["\6name"] = show,
 			["\6group"] = ender,
+			["\6quote"] = quote
 			}
 end
 
@@ -97,11 +114,11 @@ function seed.__sequence(...)
 	return {...}
 end
 
-seed["("] = seed.__def(seed.__eval, -1, "(", ")")
+seed["("] = seed.__def(seed.__eval, -1, "(", ")", true)
 
 seed[")"] = seed.__def(glue.pass, 0, ")")
 
-seed["["] = seed.__def(seed.__sequence, -1, "[", "]")
+seed["["] = seed.__def(seed.__sequence, -1, "[", "]", true)
 
 seed["]"] = seed.__def(glue.pass, 0, "]")
 

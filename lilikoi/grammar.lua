@@ -64,7 +64,7 @@ patterns.integer = S('+-')^-1 * (patterns.hex_num + patterns.dec_num)
 patterns.float = S('+-')^-1 *
           (patterns.digit^0 * '.' * patterns.digit^1 + patterns.digit^1 * '.' * patterns.digit^0 +
            patterns.digit^1) *
-          S('eE') * S('+-')^-1 * patterns.digit^1
+          (S('eE') * S('+-')^-1 * patterns.digit^1)^-1
 -- patterns.word = (patterns.alpha + '_') * (patterns.alnum + '_')^0
 
 ---

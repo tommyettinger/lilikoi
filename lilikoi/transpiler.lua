@@ -54,7 +54,7 @@ local function transfer(capt)
 		elseif capt[1] == 'COMMENT' then
 			return capt[2] .. "\n"
 		elseif capt[1] == 'IDENTIFIER' then
-			return "known[\"" .. transpiler.munge(capt[2]) .. "\"]"
+			return "__s[\"" .. transpiler.munge(capt[2]) .. "\"]"
 		end
 	end
 	return " "
@@ -62,7 +62,7 @@ end
 
 function transpiler.gen(llk)
 	local lexed = grammar.lex(llk)
-	local lu = "local known=require'lilikoi.seed'\nreturn known.__eval("
+	local lu = "local __s=require'lilikoi.seed'\nreturn __s.__eval("
 	local c = va.pack(va.map(transfer, unpack(lexed)))
 	local e1, erest = c(1), va.pack(c(2, c'#'))
 	lu = lu .. e1

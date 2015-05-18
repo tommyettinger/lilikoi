@@ -1,10 +1,7 @@
 local lil = require'lilikoi'
-local glue = require'glue'
 
-print(lil.translate"1 + 2")
-local o = lil.run"300 + 2"
-print(o)
-for i,v in pairs(glue.keys(o)) do
-	print(v .. " : " .. o[v] .. "\n")
-end
+print(lil.translate"( 7 / 2 )")
+print(lil.run"( 7 / 2 )")
+print(lil.translate"2.5 * 4 - ( 7 / 2 )")
+print(lil.run"2.5 * 4 - ( 7 / 2 )")
 print'OK'
