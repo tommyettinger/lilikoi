@@ -134,7 +134,7 @@ local lexer = {}
 local space = S('\t\v\f\n\r ,')^1
 -- Whitespace.
 local ws = token('WHITESPACE', space)
-
+local paren = token('IDENTIFIER', S")(")
 local equals = P"="^0
 local open = "[" * Cg(equals, "init") * "[" * P"\n"^-1
 local close = "]" * C(equals) * "]"
@@ -149,20 +149,22 @@ local comment = token('COMMENT', block_comment + line_comment) * (space + -1)
 -- Strings.
 local sq_str = delimited_range("'")
 local dq_str = delimited_range('"')
-local string = token('STRING', sq_str + dq_str + longstring) * (space + -1)
+local string = token('STRING', sq_str + dq_str + longstring) * (space + -1 + paren)
 
 -- Numbers.
 local lj_int = S('-')^-1 * ((patterns.dec_num + patterns.hex_num) * (P('ULL') + P('ull') + P('LL') + P('ll'))^-1)
-local number = token('NUMBER', patterns.float + lj_int) * (space + -1)
+local number = token('NUMBER', patterns.float + lj_int) * (space + -1 + paren)
 
 -- Identifiers.
 
-local un_ids = S("\"',")^1
-local ids = 1 - space
-local identifier = token('IDENTIFIER', ids^1) * (space + -1)
-local keyword = token('KEYWORD', S(':') * ids^1) * (space + -1)
+local un_ids = S("\t\v\f\n\r \"',)(")^1
+local ids = 1 - un_ids
+
+local identifier = token('IDENTIFIER', ids^1) * (space + -1 + paren)
+local keyword = token('KEYWORD', S(':') * ids^1) * (space + -1 + paren)
 
 lexer._RULES = {
+  group=paren,
   whitespace=ws,
   string=string,
   comment=comment,
@@ -171,6 +173,7 @@ lexer._RULES = {
   identifier=identifier
 }
 lexer._RULEORDER = {
+  'group',
   'whitespace',
   'string',
   'comment',
