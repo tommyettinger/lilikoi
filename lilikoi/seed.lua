@@ -13,12 +13,12 @@ local nests = {}
 -- which are stored in given. returns the function's result, if it has one,
 -- or if it has not been supplied enough args, it returns the function
 -- and a larger list of given args. handles grouping as well.
-function seed.__step(f, given, arg)
+function seed.__step(f, given, arg, terminal)
 	if arg == nil then
 		if f["\6group"] then
 			nests[#nests + 1] = f["\6group"]
 		end
-		if #given == f["\6arity"] then
+		if #given == f["\6arity"] or (-1 == f["\6arity"] and terminal) then
 			return f["\6op"](unpack(given)), "\0"
 		else
 			return f, given
@@ -34,19 +34,17 @@ function seed.__step(f, given, arg)
 	elseif type(arg) == 'table' and arg["\6op"] and arg["\6group"] then
 		nests[#nests + 1] = arg["\6group"]
 		given[#given + 1] = arg
-	elseif f["\6group"] or #given < f["\6arity"] then
+	elseif f["\6arity"] == -1 or #given < f["\6arity"] then
 		given[#given + 1] = arg
 	end
-	if #given == f["\6arity"] then
+	if #given == f["\6arity"] or (-1 == f["\6arity"] and terminal) then
 		return f["\6op"](unpack(given)), "\0"
 	end
 	return f, given
 end
--- the full list of unconsumed tokens.
-----seed.__ahead = nil
 -- takes a sequence of generated function tables and data, and
 -- steps through it until it has exhausted the sequence,
--- returning the final stack.
+-- returning the final stack (unpacked).
 function seed.__eval(...)
 	local ahead = glue.reverse({...})
 	local stack = {}
@@ -54,6 +52,13 @@ function seed.__eval(...)
 	while #ahead > 0 do
 		-- consume any tokens that were used
 		local a = table.remove(ahead)
+		local terminal = #ahead == 0
+		if type(a) == 'function' then
+			a = {["\6op"] = a,
+				["\6arity"] = -1,
+				["\6name"] = "__NATIVE"
+			}
+		end
 		
 		if type(a) == 'table' and a["\6op"] then
 			if type(stack[#stack]) == 'table' and stack[#stack]["\6op"] and
@@ -65,7 +70,7 @@ function seed.__eval(...)
 				-- replace the top of the stack with the quoting function
 				-- with the latest item received.
 				local g, r
-				r, g = seed.__step(stack[#stack], sexps[#sexps], a)
+				r, g = seed.__step(stack[#stack], sexps[#sexps], a, terminal)
 				if(g ~= "\0") then
 					stack[#stack] = r
 					sexps[#sexps] = g
@@ -78,7 +83,7 @@ function seed.__eval(...)
 			-- if we have just started executing a grouping function,
 			-- ignore the current stack and start the grouping.
 				local g
-				stack[#stack + 1], g = seed.__step(a, {}, nil)
+				stack[#stack + 1], g = seed.__step(a, {}, nil, terminal)
 				if(g ~= "\0") then
 					sexps[#sexps + 1] = g
 				end
@@ -89,17 +94,17 @@ function seed.__eval(...)
 				local g
 				local start = #stack
 				if start == 0 then start = 1 end
-				stack[start], g = seed.__step(a, {}, stack[#stack])
+				stack[start], g = seed.__step(a, {}, stack[#stack], terminal)
 				if(g ~= "\0") then
 					sexps[#sexps + 1] = g
 				end
 			end
 		elseif type(stack[#stack]) == 'table' and stack[#stack]["\6op"] then
 			-- if we are continuing a function that is on the stack,
-			-- replace the top of the stack with the function called
+			-- replace the top of the stack with the function part-called
 			-- with the latest item received.
 			local g
-			stack[#stack], g = seed.__step(stack[#stack], sexps[#sexps], a)
+			stack[#stack], g = seed.__step(stack[#stack], sexps[#sexps], a, terminal)
 			if(g ~= "\0") then
 				sexps[#sexps] = g
 			else
@@ -114,6 +119,16 @@ function seed.__eval(...)
 	if #stack == 1 then return stack[1] end
 	return unpack(stack)
 end
+
+-- the entry point for a program. Clears any possible lingering state,
+-- then returns any number of args (ideally 1, if the program
+-- completed with one return value) based on evaluating a list of
+-- code tables and data.
+function seed.__run(...)
+	nests = {}
+	return seed.__eval(...)
+end
+
 function seed.__def(op, arity, show, ender, quote)
 	return {["\6op"] = op,
 			["\6arity"] = arity,
@@ -151,6 +166,8 @@ seed["]"] = seed.__def(glue.pass, 0, "]")
 
 seed["=get"] = seed.__def(seed.__basic_get, 2, "=get")
 
+seed.math = math
+
 return glue.autoload(seed,
 {
    ["+"] = 'lilikoi.operators',
@@ -166,5 +183,4 @@ return glue.autoload(seed,
    [">"] = 'lilikoi.operators',
    [">="] = 'lilikoi.operators',
    concat = 'lilikoi.operators',
-   
 })
