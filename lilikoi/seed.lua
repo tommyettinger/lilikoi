@@ -4,7 +4,6 @@
 
 local seed = {}
 local glue = require'glue'
-local va = require'vararg'
 local pp = require'pp'
 
 local nests = {}
@@ -77,9 +76,9 @@ function seed.__eval(...)
 			stack[#stack]["\6f"]["\6op"] and stack[#stack]["\6f"]["\6group"])) then
 				-- if we are continuing a function that is on the stack,
 				-- and that function is a grouper, disregard starting any
-				-- new functions and put the quoted args on the stack for
+				-- new functions and put the un-evaled args on the stack for
 				-- later eval. Do the normal behavior for continuing,
-				-- replace the top of the stack with the quoting function
+				-- replace the top of the stack with the grouping function
 				-- with the latest item received.
 				local g, r
 				r, g = seed.__step(stack[#stack], a, terminal) --sexps[#sexps], 
@@ -139,20 +138,33 @@ function seed.__run(...)
 	return seed.__eval(...)
 end
 
-function seed.__def(op, arity, show, ender, quote)
-	return {["\6op"] = op,
-			["\6arity"] = arity,
-			["\6name"] = show,
-			["\6group"] = ender,
-			["\6quote"] = quote
-			}
+seed.__munge_table = {
+["%"]="\6mod",
+["\\"]="\6back",
+}
+
+local function semi_munge(name)
+	return name:gsub(
+		"^%.", "\6dot"):gsub(
+			"%.$", "\6dot"):gsub(
+				"[%%\\]", seed.__munge_table);
+end
+
+function seed.__def(op, arity, name, group)
+	seed[semi_munge(name)] =
+	{
+		["\6op"] = op,
+		["\6arity"] = arity,
+		["\6name"] = name,
+		["\6group"] = group
+	}
 end
 
 function seed.__sequence(...)
 	return {...}
 end
 
-function seed.__basic_get(t, idxs)
+local function basic_get(t, idxs)
 	local elem = t
 	if idxs ~= nil then
 		if type(idxs) == 'table' then
@@ -166,17 +178,47 @@ function seed.__basic_get(t, idxs)
 	return elem
 end
 
-seed["("] = seed.__def(glue.pass, -1, "(", ")", true)
+function seed.format(val)
+	local tp = type(val)
+	if val == nil then
+		return '_'
+	elseif tp == 'string' then
+		return '"' .. val .. '"'
+	elseif tp == 'number' then
+		return tostring(val)
+	elseif tp == 'table' then
+		if val["\6name"] then
+			return val["\6name"]
+		elseif val["\6g"] and val["\6f"] and val["\6f"]["\6name"] then
+			local s = '( ' .. val["\6f"]["\6name"] .. ' '
+			for k,v in ipairs(val["\6g"]) do s = s .. seed.format(v) .. ' ' end
+			s = s .. ')'
+			return s
+		else
+			local s = '[ '
+			for k,v in ipairs(val) do s = s .. seed.format(v) .. ' ' end
+			s = s .. ']'
+			return s
+		end
+	end
+	return elem
+end
 
-seed[")"] = seed.__def(glue.pass, 0, ")")
+seed.__def(glue.pass, -1, "(", ")")
 
-seed["["] = seed.__def(seed.__sequence, -1, "[", "]")
+seed.__def(glue.pass, 0, ")")
 
-seed["]"] = seed.__def(glue.pass, 0, "]")
+seed.__def(seed.__sequence, -1, "[", "]")
 
-seed["=get"] = seed.__def(seed.__basic_get, 2, "=get")
+seed.__def(glue.pass, 0, "]")
+
+seed.__def(basic_get, 2, "=get")
 
 seed.math = math
+seed.io = io
+seed.file = file
+seed.os = os
+seed.string = string
 
 return glue.autoload(seed,
 {
@@ -193,4 +235,7 @@ return glue.autoload(seed,
    [">"] = 'lilikoi.operators',
    [">="] = 'lilikoi.operators',
    concat = 'lilikoi.operators',
+   transpile = 'lilikoi.transpiler',
+   execute = 'lilikoi.transpiler',
+   munge = 'lilikoi.transpiler'
 })

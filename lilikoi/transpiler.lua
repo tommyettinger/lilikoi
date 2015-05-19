@@ -2,50 +2,17 @@
 -- lilikoi/transpiler: an internal module for producing lua from lilikoi code.
 -- Written by Tommy Ettinger. Public Domain.
 
-local transpiler = {}
+local seed = require'lilikoi.seed'
 local grammar = require'lilikoi.grammar'
 local glue = require'glue'
 local va = require'vararg'
 
---[[
-["-"]="_",
-["+"]="\5add",
-["*"]="\5mul",
-["/"]="\5div",
-["^"]="\5pow",
-["="]="\5eq",
-["!"]="\5bang",
-["~"]="\5wave",
-["`"]="\5tick",
-["#"]="\5hash",
-["$"]="\5cash",
-["&"]="\5and",
-["|"]="\5pipe",
-["@"]="\5at",
-[";"]="\5semi",
-["<"]="\5lt",
-[">"]="\5gt",
-["("]="\5lpar",
-[")"]="\5rpar",
-["["]="\5lsq",
-["]"]="\5rsq",
-["{"]="\5lcurl",
-["}"]="\5rcurl",
-
-[":"]="\5col",
---]]
-
-local munge_table = {
-["%"]="\6mod",
-["\\"]="\6back",
-}
-
-function transpiler.munge(name)
+function seed.munge(name)
 	return name:gsub(
 		"^%.", "\6dot"):gsub(
 			"%.$", "\6dot"):gsub(
 				"%.", '"]["'):gsub(
-					"[%%\\]", munge_table);
+					"[%%\\]", seed.__munge_table);
 end
 
 local function transfer(capt)
@@ -59,13 +26,13 @@ local function transfer(capt)
 		elseif capt[1] == 'KEYWORD' then
 			return '"\5' .. capt[2] .. '"'
 		elseif capt[1] == 'IDENTIFIER' then
-			return '__s["' .. transpiler.munge(capt[2]) .. '"]'
+			return '__s["' .. seed.munge(capt[2]) .. '"]'
 		end
 	end
 	return " "
 end
 
-function transpiler.gen(llk)
+function seed.transpile(llk)
 	local lexed = grammar.lex(llk)
 	local lu = 'local __s=require"lilikoi.seed"\nreturn __s.__run('
 	local c = va.pack(va.map(transfer, unpack(lexed)))
@@ -82,6 +49,10 @@ function transpiler.gen(llk)
 	end
 	lu = lu .. ")"
 	return lu
+end
+
+function seed.execute(llk)
+	return assert(loadstring(seed.transpile(llk)))()
 end
 
 return transpiler

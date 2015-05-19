@@ -3,13 +3,13 @@
 -- Written by Tommy Ettinger. Public Domain.
 
 local lilikoi = {} --lilikoi namespace
-local transpiler = require'lilikoi.transpiler'
+local seed = require'lilikoi.seed'
 function lilikoi.translate(code)
-    return transpiler.gen(code)
+    return seed.transpile(code)
 end
 
 function lilikoi.run(code)
-    return assert(loadstring(transpiler.gen(code)))()
+    return seed.execute(code)
 end
 
 return lilikoi

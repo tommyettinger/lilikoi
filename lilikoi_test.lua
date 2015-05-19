@@ -19,5 +19,9 @@ pp(lil.translate"( [ 10 20 30 ] =get 2 )")
 pp(lil.run"( [ 10 20 30 ] =get 2 )")
 pp(lil.translate"( * 2 ) 3")
 pp(lil.run"( * 2 ) 3")
+pp(lil.translate"[ ]")
+pp(lil.run"[ ]")
+pp(lil.translate"( execute '2 * 3 + 4' )")
+pp(lil.run"( execute '2 * 3 + 4' )")
 
 pp'OK'
