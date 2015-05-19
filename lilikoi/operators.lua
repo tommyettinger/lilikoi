@@ -31,7 +31,7 @@ coredef(pow, 2, "^")
 local function mod(a, b)
 	return a % b
 end
-seed["\5mod"] = {["\6op"] = mod,
+seed["\6mod"] = {["\6op"] = mod,
 		["\6arity"] = 2,
 		["\6name"] = "%",
 		}

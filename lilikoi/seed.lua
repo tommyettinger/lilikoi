@@ -27,7 +27,7 @@ function seed.__step(f, given, arg)
 	if type(arg) == 'table' and arg["\6op"] and nests[#nests] == arg["\6name"] then
 		table.remove(nests)
 		if #nests == 0 then
-			return f["\6op"](unpack(given)), "\0"
+			return f["\6op"](seed.__eval(unpack(given))), "\0"
 		else
 			given[#given + 1] = arg
 		end
@@ -57,11 +57,11 @@ function seed.__eval(...)
 		
 		if type(a) == 'table' and a["\6op"] then
 			if type(stack[#stack]) == 'table' and stack[#stack]["\6op"] and
-					stack[#stack]["\6quote"] then
+					stack[#stack]["\6group"] then
 				-- if we are continuing a function that is on the stack,
-				-- and that function quotes its arguments, disregard
-				-- starting any new functions and put the quoted stuff
-				-- on the stack. Do the normal behavior for continuing,
+				-- and that function is a grouper, disregard starting any
+				-- new functions and put the quoted args on the stack for
+				-- later eval. Do the normal behavior for continuing,
 				-- replace the top of the stack with the quoting function
 				-- with the latest item received.
 				local g, r
@@ -97,7 +97,7 @@ function seed.__eval(...)
 		elseif type(stack[#stack]) == 'table' and stack[#stack]["\6op"] then
 			-- if we are continuing a function that is on the stack,
 			-- replace the top of the stack with the function called
-			-- with the latest item received.			
+			-- with the latest item received.
 			local g
 			stack[#stack], g = seed.__step(stack[#stack], sexps[#sexps], a)
 			if(g ~= "\0") then
@@ -112,7 +112,7 @@ function seed.__eval(...)
 		end
 	end
 	if #stack == 1 then return stack[1] end
-	return stack
+	return unpack(stack)
 end
 function seed.__def(op, arity, show, ender, quote)
 	return {["\6op"] = op,
@@ -127,13 +127,29 @@ function seed.__sequence(...)
 	return {...}
 end
 
-seed["("] = seed.__def(seed.__eval, -1, "(", ")", true)
+function seed.__basic_get(t, idxs)
+	local elem = t
+	if idxs then
+		if type(idxs) == 'table' then
+			for i,v in ipairs(idxs) do
+				elem = elem[v]
+			end
+		else
+			return elem[idxs]
+		end
+	end
+	return elem
+end
+
+seed["("] = seed.__def(glue.pass, -1, "(", ")", true)
 
 seed[")"] = seed.__def(glue.pass, 0, ")")
 
-seed["["] = seed.__def(seed.__sequence, -1, "[", "]", true)
+seed["["] = seed.__def(seed.__sequence, -1, "[", "]")
 
 seed["]"] = seed.__def(glue.pass, 0, "]")
+
+seed["=get"] = seed.__def(seed.__basic_get, 2, "=get")
 
 return glue.autoload(seed,
 {
@@ -142,7 +158,7 @@ return glue.autoload(seed,
    ["*"] = 'lilikoi.operators',
    ["/"] = 'lilikoi.operators',
    ["^"] = 'lilikoi.operators',
-   ["\5mod"] = 'lilikoi.operators',
+   ["\6mod"] = 'lilikoi.operators',
    ["="] = 'lilikoi.operators',
    ["!="] = 'lilikoi.operators',
    ["<"] = 'lilikoi.operators',

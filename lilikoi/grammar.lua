@@ -160,12 +160,14 @@ local number = token('NUMBER', patterns.float + lj_int) * (space + -1)
 local un_ids = S("\"',")^1
 local ids = 1 - space
 local identifier = token('IDENTIFIER', ids^1) * (space + -1)
+local keyword = token('KEYWORD', S(':') * ids^1) * (space + -1)
 
 lexer._RULES = {
   whitespace=ws,
   string=string,
   comment=comment,
   number=number,
+  keyword=keyword,
   identifier=identifier
 }
 lexer._RULEORDER = {
@@ -173,6 +175,7 @@ lexer._RULEORDER = {
   'string',
   'comment',
   'number',
+  'keyword',
   'identifier'
 }
 

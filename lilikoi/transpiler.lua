@@ -7,10 +7,6 @@ local grammar = require'lilikoi.grammar'
 local glue = require'glue'
 local va = require'vararg'
 
-local munge_table = {
-["%"]="\5mod",
-["\\"]="\5back",
-["."]="\"][\""
 --[[
 ["-"]="_",
 ["+"]="\5add",
@@ -38,12 +34,19 @@ local munge_table = {
 
 [":"]="\5col",
 --]]
+
+local munge_table = {
+["%"]="\6mod",
+["\\"]="\6back",
 }
 
 function transpiler.munge(name)
-	return name:gsub("^%.", "\5dot"):gsub("%.$", "\5dot"):gsub("[%%\\%.]", munge_table);
+	return name:gsub(
+		"^%.", "\6dot"):gsub(
+			"%.$", "\6dot"):gsub(
+				"%.", '"]["'):gsub(
+					"[%%\\]", munge_table);
 end
-
 
 local function transfer(capt)
 	if capt[1] then
@@ -53,8 +56,10 @@ local function transfer(capt)
 			return capt[2]
 		elseif capt[1] == 'COMMENT' then
 			return capt[2] .. "\n"
+		elseif capt[1] == 'KEYWORD' then
+			return '"\5' .. capt[2] .. '"'
 		elseif capt[1] == 'IDENTIFIER' then
-			return "__s[\"" .. transpiler.munge(capt[2]) .. "\"]"
+			return '__s["' .. transpiler.munge(capt[2]) .. '"]'
 		end
 	end
 	return " "
