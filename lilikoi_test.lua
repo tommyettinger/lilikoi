@@ -24,5 +24,7 @@ check("(fn [ a b ] (b ^ a)) 3 2")
 check("(str (2 ^ 3))")
 check("(fn [ a b ] (math.max a b math.pi)) 3 2")
 check("(fn [ a b ] (str (a ^ b) ' = ' a '^' b)) 3 2")
+check("(def formula (fn [ a b ] (str (a ^ b) ' = ' a '^' b))) (formula 3 3)")
+check("(defn formula [ a b ] (str (a ^ b) ' = ' a '^' b)) (formula 4 3)")
 
 print'OK'

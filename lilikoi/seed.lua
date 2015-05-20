@@ -7,7 +7,7 @@ local va = require'vararg'
 local pp = require'pp'
 local glue = require'glue'
 
-seed.__scopes = {{}}
+seed.__scopes = {{}, {}}
 
 local function lookup(pact)
 	local name = pact[1]
@@ -27,7 +27,7 @@ local function lookup(pact)
 	if #pact > 2 then
 		for i,a in ipairs(pact) do
 			if i > 2 then
-				if ret[a] == nil then return nil end
+				if ret[a] == nil then return nil, "nil" end
 				if type(ret[a]) == 'function' then
 					ret = {
 							["\6op"] = ret[a],
@@ -134,7 +134,7 @@ function seed.__eval(...)
 				["\6name"] = "__NATIVE"
 			}
 		end
-
+		
 		if type(a) == 'table' and a["\6c"] then
 			ided, nm = seed.__step(a, nil, true)
 		end
@@ -225,6 +225,8 @@ function seed.__run(...)
 	return seed.__eval(...)
 end
 
+seed["nil"] = nil
+
 function seed.clean(name)
 	if type(name) == 'string' and string.find(name, "^\6,") then
 		return string.gsub(name, "^\6,", "", 1)
@@ -263,10 +265,12 @@ function seed.__def(op, arity, name, group, macro)
 		["\6macro"] = macro
 	}
 end
-local function define(name, val)
-	seed.__scopes[#seed.__scopes][seed.munge(name)] = val
+local function define(name, ...)
+	local val = seed.__eval(va.map(seed.unquote, ...))
+	seed.__scopes[#seed.__scopes][seed.munge(seed.clean(name))] = val
+	return nil
 end
-seed.__def(define, 2, "def", nil, true)
+seed.__def(define, -1, "def", nil, true)
 
 local function _fn(...)
 	local all = va.pack(...)
@@ -301,7 +305,15 @@ local function _fn(...)
 	}
 end
 
+
+local function _defn(name, ...)
+	local val = _fn(...)
+	seed.__scopes[#seed.__scopes][seed.munge(seed.clean(name))] = val
+	return nil
+end
+
 seed.__def(_fn, -1, "fn", nil, true)
+seed.__def(_defn, -1, "defn", nil, true)
 
 function seed.__sequence(...)
 	return {...}
