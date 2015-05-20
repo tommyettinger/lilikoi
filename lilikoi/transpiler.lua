@@ -7,14 +7,6 @@ local grammar = require'lilikoi.grammar'
 local glue = require'glue'
 local va = require'vararg'
 
-function seed.munge(name)
-	return name:gsub(
-		"^%.", "\6dot"):gsub(
-			"%.$", "\6dot"):gsub(
-				"%.", '"]["'):gsub(
-					"[%%\\]", seed.__munge_table);
-end
-
 local function transfer(capt)
 	if capt[1] then
 		if capt[2] == "_" then
@@ -26,7 +18,7 @@ local function transfer(capt)
 		elseif capt[1] == 'KEYWORD' then
 			return '"\5' .. capt[2] .. '"'
 		elseif capt[1] == 'IDENTIFIER' then
-			return '__s["' .. seed.munge(capt[2]) .. '"]'
+			return '__s.__("' .. seed.munge(capt[2]) .. '")'
 		end
 	end
 	return " "
