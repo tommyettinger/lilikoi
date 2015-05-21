@@ -102,15 +102,20 @@ function seed.__step(partial, arg, terminal)
 			nests[#nests + 1] = f["\6group"]
 		end
 		
-		
 		if #given == f["\6arity"] then
-			return (f["\6op"](unpack(seed.__eval(given)))), "\5"
-		elseif (f["\6macro"]) and terminal then
-			return (f["\6op"](given)), "\5"
+			local t = {f["\6op"](unpack(seed.__eval(given)))}
+			t["\5"]=true
+			return t
+		elseif f["\6macro"] and terminal then
+			local t = {f["\6op"](given)}
+			t["\5"]=true
+			return t
 		elseif -1 == f["\6arity"] and terminal then
-			return (f["\6op"](unpack(seed.__eval(given)))), "\5"
+			local t = {f["\6op"](unpack(seed.__eval(given)))}
+			t["\5"]=true
+			return t
 		else
-			return partial, nil
+			return partial
 		end
 	end
 	if type(arg) == 'table' and ((arg["\6op"] and nests[#nests] == arg["\6name"])
@@ -118,7 +123,9 @@ function seed.__step(partial, arg, terminal)
 			and nests[#nests] == arg["\6f"]["\6name"])) then
 		table.remove(nests)
 		if #nests == 0 then
-			return (f["\6op"](unpack(seed.__eval(given)))), "\5"
+			local t = {f["\6op"](unpack(seed.__eval(given)))}
+			t["\5"]=true
+			return t
 		else
 			given[#given + 1] = arg
 		end
@@ -130,13 +137,19 @@ function seed.__step(partial, arg, terminal)
 		given[#given + 1] = arg
 	end
 	if #given == f["\6arity"] then
-		return (f["\6op"](unpack(seed.__eval(given)))), "\5"
-	elseif (f["\6macro"]) and terminal then
-		return (f["\6op"](given)), "\5"
+		local t = {f["\6op"](unpack(seed.__eval(given)))}
+		t["\5"]=true
+		return t
+	elseif f["\6macro"] and terminal then
+		local t = {f["\6op"](given)}
+		t["\5"]=true
+		return t
 	elseif -1 == f["\6arity"] and terminal then
-		return (f["\6op"](unpack(seed.__eval(given)))), "\5"
+		local t = {f["\6op"](unpack(seed.__eval(given)))}
+		t["\5"]=true
+		return t
 	end
-	return partial, nil
+	return partial
 end
 -- takes a sequence of generated function tables and data, and
 -- steps through it until it has exhausted the sequence,
@@ -174,12 +187,15 @@ function seed.__eval(upcoming)
 			else
 				q = a
 			end
-			r, g = seed.__step(stack[#stack], q, terminal) -- NOTE using nm, not ided
-			if(g ~= "\5") then
-				stack[#stack] = r
-			else
+			r = seed.__step(stack[#stack], q, terminal) -- NOTE using nm, not ided
+			if(r["\5"]) then
 				table.remove(stack)
-				table.insert(ahead, r)
+				glue.reverse(r)
+				for i,v in ipairs(r) do
+					table.insert(ahead, v)
+				end
+			else
+				stack[#stack] = r
 			end
 		else
 			if ided and type(ided) ~= 'table' then
@@ -199,18 +215,21 @@ function seed.__eval(upcoming)
 				-- later eval. Do the normal behavior for continuing,
 				-- replace the top of the stack with the grouping function
 				-- with the latest item received.
-				local r, g
+				local r
 				if ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"]) then
-					r, g = seed.__step(stack[#stack], ided, terminal)
+					r = seed.__step(stack[#stack], ided, terminal)
 				else
 					-- NOTE using a, not ided
-					r, g = seed.__step(stack[#stack], a, terminal)
+					r = seed.__step(stack[#stack], a, terminal)
 				end
-				if(g ~= "\5") then
-					stack[#stack] = r
-				else
+				if(r["\5"]) then
 					table.remove(stack)
-					table.insert(ahead, r)
+					glue.reverse(r)
+					for i,v in ipairs(r) do
+						table.insert(ahead, v)
+					end
+				else
+					stack[#stack] = r
 				end
 			elseif ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"]) then
 			-- if we have just started executing a grouping function,
@@ -222,7 +241,16 @@ function seed.__eval(upcoming)
 			-- with the content of the top of the stack.
 				local start = #stack
 				if start == 0 then start = 1 end
-				stack[start] = seed.__step(ided, stack[#stack], terminal)
+				local r = seed.__step(ided, stack[#stack], terminal)
+				if(r["\5"]) then
+					table.remove(stack)
+					glue.reverse(r)
+					for i,v in ipairs(r) do
+						table.insert(ahead, v)
+					end
+				else
+					stack[start] = r
+				end
 			end
 		elseif type(stack[#stack]) == 'table' and (stack[#stack]["\6op"] or
 			(stack[#stack]["\6f"] and stack[#stack]["\6f"]["\6op"])) then
@@ -230,7 +258,16 @@ function seed.__eval(upcoming)
 			-- and we have been given data and not a new function,
 			-- replace the top of the stack with the function part-called
 			-- with the latest item received.
-			stack[#stack] = seed.__step(stack[#stack], a, terminal) -- NOTE using a, again
+			local r = seed.__step(stack[#stack], a, terminal) -- NOTE using a, again
+			if(r["\5"]) then
+				table.remove(stack)
+				glue.reverse(r)
+				for i,v in ipairs(r) do
+					table.insert(ahead, v)
+				end
+			else
+				stack[#stack] = r
+			end
 		else
 			-- if we are not continuing or starting a function,
 			-- append a piece of data to the stack.

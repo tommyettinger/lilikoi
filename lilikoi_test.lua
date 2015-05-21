@@ -8,7 +8,7 @@ local function check(llk)
 end
 
 check("'hello, world!'")
-check("(7 / 2)")
+check("7 / 2")
 check("2.5 * 4 - (7 / 2)")
 check("1 + 2 * 3 / (10 * 1.2)")
 check("1 + 2 * (7 + 8 - 3) / (10 * (6 / 5))")
@@ -26,5 +26,6 @@ check("(fn [ a b ] (math.max a b math.pi)) 3 2")
 check("(fn [ a b ] (str (a ^ b) ' = ' a '^' b)) 3 2")
 check("(def formula (fn [ a b ] (str (a ^ b) ' = ' a '^' b))) (formula 3 3)")
 check("(defn formula [ a b ] (str (a ^ b) ' = ' a '^' b)) (formula 4 3)")
+check("(+ 1 2 4)")
 
 print'OK'
