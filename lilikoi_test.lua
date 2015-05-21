@@ -7,7 +7,7 @@ local function check(llk)
 	pp(lil.run(llk))
 end
 
-check("/")
+check("'hello, world!'")
 check("(7 / 2)")
 check("2.5 * 4 - (7 / 2)")
 check("1 + 2 * 3 / (10 * 1.2)")

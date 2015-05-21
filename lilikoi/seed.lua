@@ -3,31 +3,18 @@
 -- Written by Tommy Ettinger. Public Domain.
 
 local seed = {}
-local va = require'vararg'
 local pp = require'pp'
 local glue = require'glue'
 
 seed.__scopes = {{}, {}}
+seed.__namespace = nil
 
-local function lookup(pact)
-	local name = pact[1]
-	local revi = #seed.__scopes
-	local found = 0
-	while revi > 0 do
-		if seed.__scopes[revi][name] then
-			return seed.__scopes[revi][name], name
-		end
-		revi = revi - 1
-	end
-	local tgt = seed
-	if found > 0 then
-		tgt = seed.__scopes[found]
-	end
+local function lookup_helper(name, pact, tgt)
 	local ret = tgt[pact[2]]
 	if #pact > 2 then
 		for i,a in ipairs(pact) do
 			if i > 2 then
-				if ret[a] == nil then return nil, "nil" end
+				if ret[a] == nil then return nil, nil end
 				if type(ret[a]) == 'function' then
 					ret = {
 							["\6op"] = ret[a],
@@ -43,6 +30,31 @@ local function lookup(pact)
 		end
 	end
 	return ret, name
+end
+local function lookup(pact)
+	local name = pact[1]
+	local revi = #seed.__scopes
+
+	while revi > 0 do
+		if seed.__scopes[revi][name] then
+			return seed.__scopes[revi][name], name
+		end
+		revi = revi - 1
+	end
+	local lookups
+	if seed.__namespace then
+		lookups = {seed.__namespace, seed}
+	else
+		lookups = {seed}
+	end
+	local res, nm
+	for t,ns in ipairs(lookups) do
+		res, nm = lookup_helper(name, pact, ns)
+		if res then
+			return res, nm
+		end
+	end
+	return nil, name
 end
 
 -- Look up a string in the defined symbol table.
@@ -89,8 +101,14 @@ function seed.__step(partial, arg, terminal)
 		if f["\6group"] then
 			nests[#nests + 1] = f["\6group"]
 		end
-		if #given == f["\6arity"] or (-1 == f["\6arity"] and terminal) then
-			return (f["\6op"](unpack(given))), "\5"
+		
+		
+		if #given == f["\6arity"] then
+			return (f["\6op"](unpack(seed.__eval(given)))), "\5"
+		elseif (f["\6macro"]) and terminal then
+			return (f["\6op"](given)), "\5"
+		elseif -1 == f["\6arity"] and terminal then
+			return (f["\6op"](unpack(seed.__eval(given)))), "\5"
 		else
 			return partial, nil
 		end
@@ -100,7 +118,7 @@ function seed.__step(partial, arg, terminal)
 			and nests[#nests] == arg["\6f"]["\6name"])) then
 		table.remove(nests)
 		if #nests == 0 then
-			return (f["\6op"](seed.__eval(unpack(given)))), "\5"
+			return (f["\6op"](unpack(seed.__eval(given)))), "\5"
 		else
 			given[#given + 1] = arg
 		end
@@ -111,16 +129,20 @@ function seed.__step(partial, arg, terminal)
 	elseif f["\6arity"] == -1 or #given < f["\6arity"] then
 		given[#given + 1] = arg
 	end
-	if #given == f["\6arity"] or (-1 == f["\6arity"] and terminal) then
-		return (f["\6op"](seed.__eval(unpack(given)))), "\5"
+	if #given == f["\6arity"] then
+		return (f["\6op"](unpack(seed.__eval(given)))), "\5"
+	elseif (f["\6macro"]) and terminal then
+		return (f["\6op"](given)), "\5"
+	elseif -1 == f["\6arity"] and terminal then
+		return (f["\6op"](unpack(seed.__eval(given)))), "\5"
 	end
 	return partial, nil
 end
 -- takes a sequence of generated function tables and data, and
 -- steps through it until it has exhausted the sequence,
 -- returning the final stack (unpacked).
-function seed.__eval(...)
-	local ahead = glue.reverse({...})
+function seed.__eval(upcoming)
+	local ahead = glue.reverse(upcoming)
 	local stack = {}
 	--local sexps = {}
 	while #ahead > 0 do
@@ -160,7 +182,11 @@ function seed.__eval(...)
 				table.insert(ahead, r)
 			end
 		else
-		if ided and type(ided) ~= 'table' then a = ided end
+			if ided and type(ided) ~= 'table' then
+				a = ided
+			elseif type(a) == 'table' and a["\6op"] and a["\6name"] then
+				ided, nm = a, a["\6name"]
+			end
 		
 			if type(ided) == 'table' and (ided["\6op"] or
 				(ided["\6f"] and ided["\6f"]["\6op"])) then
@@ -212,17 +238,19 @@ function seed.__eval(...)
 		end
 		end
 	end
-	if #stack == 1 then return stack[1] end
-	return unpack(stack)
+	return stack
 end
 
 -- the entry point for a program. Clears any possible lingering state,
 -- then returns any number of args (ideally 1, if the program
 -- completed with one return value) based on evaluating a list of
 -- code tables and data.
-function seed.__run(...)
+function seed.__run(program)
 	nests = {}
-	return seed.__eval(...)
+	seed.__scopes = {{}, {}}
+	seed.__namespace = nil
+	
+	return unpack(seed.__eval(program))
 end
 
 seed["nil"] = nil
@@ -265,38 +293,67 @@ function seed.__def(op, arity, name, group, macro)
 		["\6macro"] = macro
 	}
 end
-local function define(name, ...)
-	local val = seed.__eval(va.map(seed.unquote, ...))
-	seed.__scopes[#seed.__scopes][seed.munge(seed.clean(name))] = val
+
+local function map(f, coll, offset)
+	local coll2 = {}
+	offset = offset or 0
+	for i,v in ipairs(coll) do
+		if i > offset then
+			coll2[#coll2 + 1] = f(v)
+		end
+	end
+	return coll2
+end
+
+seed.__def(map, 3, "offmap")
+
+seed.__def(map, 2, "map")
+
+local function define(args)
+	local name = table.remove(args, 1)
+	local val = seed.__eval(map(seed.unquote, args))[1]
+	local scp = seed.__scopes[2]
+	if seed.__namespace and scp[seed.__namespace] then scp = scp[seed.__namespace] end
+	for s in glue.gsplit(seed.munge(seed.clean(name)), ".", 1, true) do
+		local munged = seed.munge(s)
+		local n, nm = lookup({munged, munged}) 
+		if type(n) == 'table' and not (n["\6f"] or n["\6op"]) then
+			scp = n
+		else
+			scp[munged] = val
+			return nil
+		end
+	end
+	scp = val
 	return nil
+--	seed.__scopes[#seed.__scopes][seed.munge(seed.clean(name))] = val
 end
 seed.__def(define, -1, "def", nil, true)
 
-local function _fn(...)
-	local all = va.pack(...)
-	local args, arg_idx = {}, 2
-	if arg_idx > all('#') then return nil end
-	local a = all(arg_idx)
+local function _fn(args)
+	local argseq, arg_idx = {}, 2
+	if arg_idx > #args then return nil end
+	local a = args[arg_idx]
 	while a ~= '\6,]' do
-		args[arg_idx - 1] = a
+		argseq[arg_idx - 1] = a
 		arg_idx = arg_idx + 1
-		if arg_idx > all('#') then return nil end
-		a = all(arg_idx)
+		if arg_idx > #args then return nil end
+		a = args[arg_idx]
 	end
-	
 	local my_order = {}
-	for i,v in ipairs(args) do
+	for i,v in ipairs(argseq) do
 		my_order[i] = seed.clean(v)
 	end
 	return {
 		["\6op"] =
 	(function(...)
-		local ar = va.pack(...)
+		local ar = {...}
 		seed.__scopes[#seed.__scopes + 1] = {}
-		for i,a in ar do
+		for i,a in ipairs(ar) do
 			seed.__scopes[#seed.__scopes][my_order[i]] = a
 		end
-		local ret = {seed.__eval(va.map(seed.unquote, all(arg_idx+1, -1)))}
+		local tmp = map(seed.unquote, args, arg_idx)
+		local ret = seed.__eval(tmp)
 		table.remove(seed.__scopes)
 		return unpack(ret)
 	end),
@@ -306,14 +363,42 @@ local function _fn(...)
 end
 
 
-local function _defn(name, ...)
-	local val = _fn(...)
-	seed.__scopes[#seed.__scopes][seed.munge(seed.clean(name))] = val
+local function _defn(args)
+	local name = table.remove(args, 1)
+	local val = _fn(args)
+	val["\6name"] = seed.munge(seed.clean(name))
+	define({name, val})
 	return nil
+end
+
+local function _ns(name)
+	local s = seed.munge(seed.clean(name))
+	local scp = seed.__scopes[2]
+	if scp[s] == nil then scp[s] = {} end
+	seed.__namespace = s
+	return nil
+--	if seed.__namespace and scp[seed.__namespace] then scp = scp[seed.__namespace] end
+	
+	--[[
+	local s2
+	for s in glue.gsplit(seed.munge(seed.clean(name)), ".", 1, true) do
+		s2 = seed.munge(s)
+		local n = scp[s2]
+		if type(n) == 'table' then
+			if n["\6f"] or n["\6op"] then
+				scp[s2] = {}
+			end
+			seed.__namespace = scp[s2]
+		else
+			scp[s2] = {}
+			seed.__namespace = scp[s2]
+		end
+	end--]]
 end
 
 seed.__def(_fn, -1, "fn", nil, true)
 seed.__def(_defn, -1, "defn", nil, true)
+seed.__def(_ns, -1, "ns", nil, true)
 
 function seed.__sequence(...)
 	return {...}
@@ -377,7 +462,7 @@ local function _stringify(v)
 end
 
 local function _str(...)
-	return table.concat({va.map(_stringify, ...)})
+	return table.concat(map(_stringify, {...}))
 end
 
 seed.__def(_str, -1, "str")
