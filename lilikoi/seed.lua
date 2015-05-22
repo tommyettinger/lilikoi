@@ -198,30 +198,84 @@ function seed.__eval(upcoming)
 				stack[#stack] = r
 			end
 		else
-			if ided and type(ided) ~= 'table' then
+			-- we are not running through a macro
+			if ided and (type(ided) ~= 'table') then -- or ided["\6q"]
+				-- we have looked up a value and it is not a functor or table
 				a = ided
-			elseif type(a) == 'table' and a["\6op"] and a["\6name"] then
+			elseif type(a) == 'table' and a["\6op"] and a["\6name"] and not a["\6q"] then
 				ided, nm = a, a["\6name"]
 			end
 		
 			if type(ided) == 'table' and (ided["\6op"] or
-				(ided["\6f"] and ided["\6f"]["\6op"])) then
-			if type(stack[#stack]) == 'table' and ((stack[#stack]["\6op"] and
-					stack[#stack]["\6group"]) or (stack[#stack]["\6f"] and
-					stack[#stack]["\6f"]["\6op"] and stack[#stack]["\6f"]["\6group"])) then
-				-- if we are continuing a function that is on the stack,
-				-- and that function is a grouper, disregard starting any
-				-- new functions and put the un-evaled args on the stack for
-				-- later eval. Do the normal behavior for continuing,
-				-- replace the top of the stack with the grouping function
-				-- with the latest item received.
-				local r
-				if ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"]) then
-					r = seed.__step(stack[#stack], ided, terminal)
+				(ided["\6f"] and ided["\6f"]["\6op"])) and not ided["\6q"] then
+				
+				if type(stack[#stack]) == 'table' and ((stack[#stack]["\6op"] and
+						stack[#stack]["\6group"]) or (stack[#stack]["\6f"] and
+						stack[#stack]["\6f"]["\6op"] and stack[#stack]["\6f"]["\6group"])) then
+					-- if we are continuing a function that is on the stack,
+					-- and that function is a grouper, disregard starting any
+					-- new functions and put the un-evaled args on the stack for
+					-- later eval. Do the normal behavior for continuing,
+					-- replace the top of the stack with the grouping function
+					-- with the latest item received.
+					local r
+					if ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"]) then
+						r = seed.__step(stack[#stack], ided, terminal)
+					else
+						-- NOTE using a, not ided
+						r = seed.__step(stack[#stack], a, terminal)
+					end
+					if(r["\5"]) then
+						table.remove(stack)
+						glue.reverse(r)
+						for i,v in ipairs(r) do
+							if type(v) == 'table' and v["\6op"] then
+								table.insert(ahead, {["\6f"]=v,["\6g"]={},["\6q"]=true})
+							elseif type(v) == 'table' and v["\6f"] and v["\6f"]["\6op"] then
+								v["\6q"] = true
+								table.insert(ahead, v)
+							else
+								table.insert(ahead, v)
+							end
+						end
+					else
+						stack[#stack] = r
+					end
+				elseif ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"]) then
+				-- if we have just started executing a grouping function,
+				-- ignore the current stack and start the grouping.
+					stack[#stack + 1] = seed.__step(ided, nil, terminal)
 				else
-					-- NOTE using a, not ided
-					r = seed.__step(stack[#stack], a, terminal)
+				-- if we have just started executing a function,
+				-- replace the top of the stack with the function called
+				-- with the content of the top of the stack.
+					local start = #stack
+					if start == 0 then start = 1 end
+					local r = seed.__step(ided, stack[#stack], terminal)
+					if(r["\5"]) then
+						table.remove(stack)
+						glue.reverse(r)
+						for i,v in ipairs(r) do
+							table.insert(ahead, v)
+						end
+					else
+						stack[start] = r
+					end
 				end
+			elseif type(stack[#stack]) == 'table' and (stack[#stack]["\6op"] or
+				(stack[#stack]["\6f"] and stack[#stack]["\6f"]["\6op"]))
+				and not stack[#stack]["\6q"] then
+				-- if we are continuing a function that is on the stack,
+				-- and we have been given data and not a new function,
+				-- replace the top of the stack with the function part-called
+				-- with the latest item received.
+				
+				-- if the arg was returned by a grouping
+				-- then ???
+				
+--				pp({"top of stack:", stack[#stack], "a:", a})
+				
+				local r = seed.__step(stack[#stack], a, terminal) -- NOTE using a, again
 				if(r["\5"]) then
 					table.remove(stack)
 					glue.reverse(r)
@@ -231,48 +285,11 @@ function seed.__eval(upcoming)
 				else
 					stack[#stack] = r
 				end
-			elseif ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"]) then
-			-- if we have just started executing a grouping function,
-			-- ignore the current stack and start the grouping.
-				stack[#stack + 1] = seed.__step(ided, nil, terminal)
 			else
-			-- if we have just started executing a function,
-			-- replace the top of the stack with the function called
-			-- with the content of the top of the stack.
-				local start = #stack
-				if start == 0 then start = 1 end
-				local r = seed.__step(ided, stack[#stack], terminal)
-				if(r["\5"]) then
-					table.remove(stack)
-					glue.reverse(r)
-					for i,v in ipairs(r) do
-						table.insert(ahead, v)
-					end
-				else
-					stack[start] = r
-				end
+				-- if we are not continuing or starting a function,
+				-- append a piece of data to the stack.
+				stack[#stack + 1] = a
 			end
-		elseif type(stack[#stack]) == 'table' and (stack[#stack]["\6op"] or
-			(stack[#stack]["\6f"] and stack[#stack]["\6f"]["\6op"])) then
-			-- if we are continuing a function that is on the stack,
-			-- and we have been given data and not a new function,
-			-- replace the top of the stack with the function part-called
-			-- with the latest item received.
-			local r = seed.__step(stack[#stack], a, terminal) -- NOTE using a, again
-			if(r["\5"]) then
-				table.remove(stack)
-				glue.reverse(r)
-				for i,v in ipairs(r) do
-					table.insert(ahead, v)
-				end
-			else
-				stack[#stack] = r
-			end
-		else
-			-- if we are not continuing or starting a function,
-			-- append a piece of data to the stack.
-			stack[#stack + 1] = a
-		end
 		end
 	end
 	return stack
@@ -284,7 +301,7 @@ end
 -- code tables and data.
 function seed.__run(program)
 	nests = {}
-	seed.__scopes = {{}, {}}
+	seed.__scopes = {{},{}}
 	seed.__namespace = nil
 	
 	return unpack(seed.__eval(program))
@@ -302,6 +319,9 @@ end
 
 function seed.unquote(name)
 	if type(name) == 'string' and string.find(name, "^\6,") then
+		if string.find(name, "^\6,~") then
+			return seed.__(string.sub(name, 4))
+		end
 		return seed.__(seed.clean(name))
 	else
 		return name
@@ -331,24 +351,127 @@ function seed.__def(op, arity, name, group, macro)
 	}
 end
 
-local function map(f, coll, offset)
+local function _length(t)
+	if type(t) == 'table' then
+		return #t
+	else
+		return 0
+	end
+end
+
+local function _defunctor(f)
+	if type(f) == 'table' then
+		if f["\6op"] then return f["\6op"]
+		elseif f["\6f"] and f["\6f"]["\6op"] and f["\6g"] and #f["\6g"] > 0 then
+			return function(...)
+				return f["\6f"]["\6op"](unpack(f["\6g"]), ...)
+			end
+		elseif f["\6f"] and f["\6f"]["\6op"] then
+			return function(...)
+				return f["\6f"]["\6op"](...)
+			end
+		end
+	end
+	return f
+end
+
+local function _call(fun, ...)
+	return _defunctor(fun)(...)
+end
+
+local function _map(fun, coll, offset)
+	local f = _defunctor(fun)
 	local coll2 = {}
 	offset = offset or 0
 	for i,v in ipairs(coll) do
 		if i > offset then
-			coll2[#coll2 + 1] = f(v)
+			rawset(coll2, #coll2 + 1, f(v))
 		end
 	end
 	return coll2
 end
 
-seed.__def(map, 3, "offmap")
+local function _apply(fun, t)
+	local f = _defunctor(fun)
+	return f(unpack(t))
+end
 
-seed.__def(map, 2, "map")
+local function _pack(...)
+	return {...}
+end
+
+local function _reduce(fun, coll, initial)
+	local f = _defunctor(fun)
+	local ret = initial or coll[1]
+	for i,v in ipairs(coll) do
+		if initial or i > 1 then
+			ret = f(ret, v)
+		end
+	end
+	return ret
+end
+
+local function _multiget(t, i)
+	local ret = {}
+	for c,v in ipairs(t) do
+		rawset(ret, c, rawget(v, i))
+	end
+	return ret
+end
+
+local function _vmap(fun, ...)
+	local f = _defunctor(fun)
+	local ret = {}
+	local colls = {...}
+	local minlength = math.min(unpack(_map(_length, colls)))
+	for i,v in ipairs(rawget(colls, 1)) do
+		if i <= minlength then
+			rawset(ret, #ret + 1, f(unpack(_multiget(colls, i))))
+		else
+			return ret
+		end
+	end
+	return ret
+end
+
+seed.__def(_call, -1, "call")
+seed.__def(_call, -1, "@")
+seed.__def(_map, 2, "map")
+seed.__def(_map, 3, "offmap")
+seed.__def(_vmap, -1, "vmap")
+
+seed.__def(_apply, 2, "apply")
+seed.__def(unpack, 1, "unpack")
+seed.__def(_pack, -1, "pack")
+seed.__def(_reduce, 2, "reduce")
+seed.__def(_reduce, 3, "reduce-with")
+
+local function _lucompose(fs)
+	local ftable = _map(_defunctor, fs)
+	return function(...)
+		local ff = table.remove(ftable, 1)
+		local ret = {ff(...)}
+		for i,v in ipairs(ftable) do
+			ret = v(unpack(ret))
+		end
+		return ret
+	end
+end
+
+local function _compose(...)
+	return {
+		["\6op"] = _lucompose({...}),
+		["\6arity"] = -1,
+		["\6name"] = "anonymous",
+	}
+end
+
+seed.__def(_compose, -1, "compose")
 
 local function define(args)
 	local name = table.remove(args, 1)
-	local val = seed.__eval(map(seed.unquote, args))[1]
+	local val = seed.__eval(_map(seed.unquote, args))[1]
+	if type(val) == 'table' and val["\6q"] then val["\6q"] = nil end
 	local scp = seed.__scopes[2]
 	if seed.__namespace and scp[seed.__namespace] then scp = scp[seed.__namespace] end
 	for s in glue.gsplit(seed.munge(seed.clean(name)), ".", 1, true) do
@@ -368,13 +491,19 @@ end
 seed.__def(define, -1, "def", nil, true)
 
 local function _fn(args)
+	local varargs
 	local argseq, arg_idx = {}, 2
 	if arg_idx > #args then return nil end
 	local a = args[arg_idx]
 	while a ~= '\6,]' do
-		argseq[arg_idx - 1] = a
+		if varargs == nil then
+			argseq[arg_idx - 1] = a
+		end
 		arg_idx = arg_idx + 1
 		if arg_idx > #args then return nil end
+		if a == "\6,\6dot.\6dot" then
+			varargs = -1
+		end
 		a = args[arg_idx]
 	end
 	local my_order = {}
@@ -386,15 +515,22 @@ local function _fn(args)
 	(function(...)
 		local ar = {...}
 		seed.__scopes[#seed.__scopes + 1] = {}
+		seed.__scopes[#seed.__scopes]["\6dot.\6dot"] = {}
+		local i2 = 1
 		for i,a in ipairs(ar) do
-			seed.__scopes[#seed.__scopes][my_order[i]] = a
+			if my_order[i2] == "\6dot.\6dot" then
+				table.insert(seed.__scopes[#seed.__scopes]["\6dot.\6dot"], a)
+			else
+				seed.__scopes[#seed.__scopes][my_order[i2]] = a
+				i2 = i + 1
+			end
 		end
-		local tmp = map(seed.unquote, args, arg_idx)
+		local tmp = _map(seed.unquote, args, arg_idx)
 		local ret = seed.__eval(tmp)
 		table.remove(seed.__scopes)
 		return unpack(ret)
 	end),
-		["\6arity"] = #my_order,
+		["\6arity"] = varargs or #my_order,
 		["\6name"] = "anonymous",
 	}
 end
@@ -406,6 +542,55 @@ local function _defn(args)
 	val["\6name"] = seed.munge(seed.clean(name))
 	define({name, val})
 	return nil
+end
+
+
+local function _defmacro(args)
+	local name = table.remove(args, 1)
+	local varargs
+	local argseq, arg_idx = {}, 2
+	if arg_idx > #args then return nil end
+	local a = args[arg_idx]
+	while a ~= '\6,]' do
+		if varargs == nil then
+			argseq[arg_idx - 1] = a
+		end
+		arg_idx = arg_idx + 1
+		if arg_idx > #args then return nil end
+		if a == "\6,\6dot.\6dot" then
+			varargs = -1
+		end
+		a = args[arg_idx]
+	end
+	local my_order = {}
+	for i,v in ipairs(argseq) do
+		my_order[i] = seed.clean(v)
+	end
+	return {
+		["\6op"] =
+	(function(...)
+		local ar = {...}
+		seed.__scopes[#seed.__scopes + 1] = {}
+		seed.__scopes[#seed.__scopes]["\6dot.\6dot"] = {}
+		local i2 = 1
+		for i,a in ipairs(ar) do
+			-- scope at element 'arg1' has value '\6,val1'
+			if my_order[i2] == "\6dot.\6dot" then
+				table.insert(seed.__scopes[#seed.__scopes]["\6dot.\6dot"], a)
+			else
+				seed.__scopes[#seed.__scopes][my_order[i2]] = a
+				i2 = i + 1
+			end
+		end
+		local tmp = _map(seed.unquote, args, arg_idx)
+		local ret = seed.__eval(tmp)
+		table.remove(seed.__scopes)
+		return unpack(ret)
+	end),
+		["\6arity"] = varargs or  #my_order,
+		["\6name"] = seed.munge(seed.clean(name)),
+		["\6macro"] = true
+	}
 end
 
 local function _ns(name)
@@ -435,6 +620,7 @@ end
 
 seed.__def(_fn, -1, "fn", nil, true)
 seed.__def(_defn, -1, "defn", nil, true)
+seed.__def(_defmacro, -1, "defmacro", nil, true)
 seed.__def(_ns, -1, "ns", nil, true)
 
 function seed.__sequence(...)
@@ -452,7 +638,7 @@ local function _basic_get(t, idxs)
 			return elem[idxs]
 		end
 	end
-	return elem
+	return nil
 end
 
 function seed.format(val)
@@ -499,7 +685,7 @@ local function _stringify(v)
 end
 
 local function _str(...)
-	return table.concat(map(_stringify, {...}))
+	return table.concat(_map(_stringify, {...}))
 end
 
 seed.__def(_str, -1, "str")

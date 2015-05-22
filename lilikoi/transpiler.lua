@@ -26,7 +26,7 @@ end
 
 function seed.transpile(llk)
 	local lexed = grammar.lex(llk)
-	local lu = 'local __s=require"lilikoi.seed"\nreturn __s.__run({'
+	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.__run({'
 	local c = va.pack(va.map(transfer, unpack(lexed)))
 	local e1, erest = c(1), va.pack(c(2, c'#'))
 	lu = lu .. e1
