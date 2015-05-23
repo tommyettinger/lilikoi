@@ -31,7 +31,7 @@ check("(+ 1 2 4)")
 check("(call (* 2) 3)")
 
 check("map (* 2) [ 1 2 3 ]")
-check("(offmap (* 2) [ 'foo' 1 2 3 ] 1)")
+check("(off-map (* 2) [ 'foo' 1 2 3 ] 1)")
 check("(vmap (*) [ 1 2 3 4 ] [ 10 20 30 ])")
 check("(reduce (+) [ 1 2 3 4 ])")
 check("(reduce-with (^) [ 1 2 3 ] 2)")
