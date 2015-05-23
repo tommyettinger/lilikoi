@@ -36,4 +36,7 @@ check("(vmap (*) [ 1 2 3 4 ] [ 10 20 30 ])")
 check("(reduce (+) [ 1 2 3 4 ])")
 check("(reduce-with (^) [ 1 2 3 ] 2)")
 
+check("(defn sum [ &&& ] (reduce (+) &&&)) (sum 2 4 6 8)")
+--check("(defmacro component [ &&& ] (map clean &&&)) (component a 3 b 2)")
+
 print'OK'

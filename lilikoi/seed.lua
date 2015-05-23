@@ -60,9 +60,8 @@ end
 local function lookup(pact)
 	local name = pact[1]
 	local revi = #seed.__scopes
-
 	while revi > 0 do
-		if seed.__scopes[revi][name] then
+		if seed.__scopes[revi][name] ~= nil then
 			return seed.__scopes[revi][name], name
 		end
 		revi = revi - 1
@@ -191,7 +190,6 @@ function seed.__eval(upcoming)
 		if type(a) == 'table' and (a["\6group"] or (a["\6f"] and a["\6f"]["\6group"])) then
 			ided, nm = a, a["\6name"]
 		end
-		
 		if type(stack[#stack]) == 'table' and ((stack[#stack]["\6op"] and
 					stack[#stack]["\6macro"]) or (stack[#stack]["\6f"] and
 					stack[#stack]["\6f"]["\6op"] and stack[#stack]["\6f"]["\6macro"])) then
@@ -214,7 +212,7 @@ function seed.__eval(upcoming)
 			end
 		else
 			-- we are not running through a macro
-			if ided and (type(ided) ~= 'table') then -- or ided["\6q"]
+			if ided and not (type(ided) == 'table' and (ided["\6op"] or ided["\6f"])) then -- or ided["\6q"]
 				-- we have looked up a value and it is not a functor or table
 				a = ided
 			elseif type(a) == 'table' and a["\6op"] and a["\6name"] and not a["\6q"] then
@@ -319,25 +317,6 @@ end
 
 seed["nil"] = nil
 
-function seed.clean(name)
-	if type(name) == 'string' and string.find(name, "^\6,") then
-		return string.gsub(name, "^\6,", "", 1)
-	else
-		return name
-	end
-end
-
-function seed.unquote(name)
-	if type(name) == 'string' and string.find(name, "^\6,") then
-		if string.find(name, "^\6,~") then
-			return seed.__(string.sub(name, 4))
-		end
-		return seed.__(seed.clean(name))
-	else
-		return name
-	end
-end
-
 seed.__munge_table = {
 ["%"]="\6mod",
 ["\\"]="\6back",
@@ -352,6 +331,25 @@ end
 
 function seed.__def(op, arity, name, group, macro)
 	seed[seed.munge(name)] = _functor(op, arity, name, group, macro)
+end
+
+function _clean(name)
+	if type(name) == 'string' and string.find(name, "^\6,") then
+		return string.sub(name, 3)
+	else
+		return name
+	end
+end
+
+function _unquote(name)
+	if type(name) == 'string' then
+		if string.find(name, "^\6,`.") then
+			return "\6," .. string.sub(name, 4)
+		elseif string.find(name, "^\6,") then
+			return seed.__(_clean(name))
+		end
+	end
+	return name
 end
 
 local function _length(t)
@@ -438,6 +436,8 @@ local function _vmap(f, ...)
 	return ret
 end
 
+seed.__def(_clean, 1, "clean")
+seed.__def(_unquote, 1, "unquote")
 seed.__def(_call, -1, "call")
 seed.__def(_call, -1, "@")
 seed.__def(_map, 2, "map")
@@ -467,14 +467,11 @@ local function _compose(...)
 end
 
 seed.__def(_compose, -1, "compose")
-
-local function define(args)
-	local name = table.remove(args, 1)
-	local val = seed.__eval(_map(seed.unquote, args))[1]
+local function _rawdefine(name, val)
 	if type(val) == 'table' and val["\6q"] then val["\6q"] = nil end
 	local scp = seed.__scopes[2]
 	if seed.__namespace and scp[seed.__namespace] then scp = scp[seed.__namespace] end
-	for s in glue.gsplit(seed.munge(seed.clean(name)), ".", 1, true) do
+	for s in glue.gsplit(seed.munge(_clean(name)), ".", 1, true) do
 		local munged = seed.munge(s)
 		local n, nm = lookup({munged, munged}) 
 		if type(n) == 'table' and not (n["\6f"] or n["\6op"]) then
@@ -486,7 +483,13 @@ local function define(args)
 	end
 	scp = val
 	return nil
---	seed.__scopes[#seed.__scopes][seed.munge(seed.clean(name))] = val
+end
+local function define(args)
+	local name = table.remove(args, 1)
+	local val = seed.__eval(_map(_unquote, args))[1]
+	_rawdefine(name, val)
+	return nil
+--	seed.__scopes[#seed.__scopes][seed.munge(_clean(name))] = val
 end
 seed.__def(define, -1, "def", nil, true)
 
@@ -501,34 +504,33 @@ local function _fn(args)
 		end
 		arg_idx = arg_idx + 1
 		if arg_idx > #args then return nil end
-		if a == "\6,\6dot.\6dot" then
+		if a == "\6,&&&" then
 			varargs = -1
 		end
 		a = args[arg_idx]
 	end
 	local my_order = {}
 	for i,v in ipairs(argseq) do
-		my_order[i] = seed.clean(v)
+		my_order[i] = _clean(v)
 	end
 	return _functor(
-	(function(...)
+	function(...)
 		local ar = {...}
 		seed.__scopes[#seed.__scopes + 1] = {}
-		seed.__scopes[#seed.__scopes]["\6dot.\6dot"] = {}
+		seed.__scopes[#seed.__scopes]["&&&"] = {}
 		local i2 = 1
 		for i,a in ipairs(ar) do
-			if my_order[i2] == "\6dot.\6dot" then
-				table.insert(seed.__scopes[#seed.__scopes]["\6dot.\6dot"], a)
+			if my_order[i2] == "&&&" then
+				table.insert(seed.__scopes[#seed.__scopes]["&&&"], a)
 			else
 				seed.__scopes[#seed.__scopes][my_order[i2]] = a
 				i2 = i + 1
 			end
 		end
-		local tmp = _map(seed.unquote, args, arg_idx)
-		local ret = seed.__eval(tmp)
+		local ret = seed.__eval(_map(_unquote, args, arg_idx))
 		table.remove(seed.__scopes)
 		return unpack(ret)
-	end),
+	end,
 	varargs or #my_order,
 	"anonymous")
 end
@@ -537,8 +539,8 @@ end
 local function _defn(args)
 	local name = table.remove(args, 1)
 	local val = _fn(args)
-	val["\6name"] = seed.munge(seed.clean(name))
-	define({name, val})
+	rawset(val, "\6name", seed.munge(_clean(name)))
+	_rawdefine(name, val)
 	return nil
 end
 
@@ -555,44 +557,46 @@ local function _defmacro(args)
 		end
 		arg_idx = arg_idx + 1
 		if arg_idx > #args then return nil end
-		if a == "\6,\6dot.\6dot" then
+		if a == "\6,&&&" then
 			varargs = -1
 		end
 		a = args[arg_idx]
 	end
 	local my_order = {}
 	for i,v in ipairs(argseq) do
-		my_order[i] = seed.clean(v)
+		my_order[i] = _clean(v)
 	end
-	return _functor(
+	define({name, _functor(
 	(function(...)
 		local ar = {...}
 		seed.__scopes[#seed.__scopes + 1] = {}
-		seed.__scopes[#seed.__scopes]["\6dot.\6dot"] = {}
+		seed.__scopes[#seed.__scopes]["&&&"] = {}
 		local i2 = 1
-		for i,a in ipairs(ar) do
-			-- scope at element 'arg1' has value '\6,val1'
-			if my_order[i2] == "\6dot.\6dot" then
-				table.insert(seed.__scopes[#seed.__scopes]["\6dot.\6dot"], a)
+		for i,ma in ipairs(ar) do
+			-- scope at element 'arg1' has value '\6,val1' for passed identifiers
+			-- so when anything tries to lookup arg1, it gets a quoted identifier.
+			if my_order[i2] == "&&&" then
+				table.insert(seed.__scopes[#seed.__scopes]["&&&"], ma)
 			else
-				seed.__scopes[#seed.__scopes][my_order[i2]] = a
+				seed.__scopes[#seed.__scopes][my_order[i2]] = ma
 				i2 = i + 1
 			end
 		end
-		local tmp = _map(seed.unquote, args, arg_idx)
+		local tmp = _map(_unquote, args, arg_idx)
 		local ret = seed.__eval(tmp)
 		table.remove(seed.__scopes)
 		return unpack(ret)
 	end),
-	varargs or  #my_order,
-	seed.munge(seed.clean(name)),
+	-1, -- macros must always be varargs because they won't understand groups otherwise.
+	seed.munge(_clean(name)),
 	nil,
 	true
-	)
+	)})
+	return nil
 end
 
 local function _ns(name)
-	local s = seed.munge(seed.clean(name))
+	local s = seed.munge(_clean(name))
 	local scp = seed.__scopes[2]
 	if scp[s] == nil then scp[s] = {} end
 	seed.__namespace = s
@@ -601,7 +605,7 @@ local function _ns(name)
 	
 	--[[
 	local s2
-	for s in glue.gsplit(seed.munge(seed.clean(name)), ".", 1, true) do
+	for s in glue.gsplit(seed.munge(_clean(name)), ".", 1, true) do
 		s2 = seed.munge(s)
 		local n = scp[s2]
 		if type(n) == 'table' then
