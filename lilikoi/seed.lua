@@ -592,7 +592,17 @@ local function _defmacro(args)
 		for i,ma in ipairs(ar) do
 			-- scope at element 'arg1' has value '\6,val1' for passed identifiers
 			-- so when anything tries to lookup arg1, it gets a quoted identifier.
-			if my_order[i2] == "&&&" then
+			if ma == "\6,~" then
+        local inner = seed.__eval(_map(_unquote, ar, i2))
+        for ii,mm in ipairs(inner) do
+          if my_order[i2 + ii - 1] then
+            seed.__scopes[#seed.__scopes][my_order[i2 + ii - 1]] = mm
+          else
+            table.insert(seed.__scopes[#seed.__scopes]["&&&"], mm)
+          end
+        end
+        break
+			elseif my_order[i2] == nil or my_order[i2] == "&&&" then
 				table.insert(seed.__scopes[#seed.__scopes]["&&&"], ma)
 			else
 				seed.__scopes[#seed.__scopes][my_order[i2]] = ma
