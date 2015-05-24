@@ -37,6 +37,8 @@ check("(reduce (+) [ 1 2 3 4 ])")
 check("(reduce-with (^) [ 1 2 3 ] 2)")
 
 check("(defn sum [ &&& ] (reduce (+) &&&)) (sum 2 4 6 8)")
---check("(defmacro component [ &&& ] (map clean &&&)) (component a 3 b 2)")
+
+check("@(clean) '\6,foobar'")
+check("(defmacro component [ &&& ] (map (clean) &&&)) (component a 3 b 2)")
 
 print'OK'

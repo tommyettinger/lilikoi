@@ -3,8 +3,25 @@
 -- Written by Tommy Ettinger. Public Domain.
 
 local seed = {}
-local pp = require'pp'
+
 local glue = require'glue'
+glue.luapath(glue.bin)
+glue.cpath(glue.bin)
+glue.cpath(glue.bin .. "/bin")
+glue.cpath(glue.bin .. "/bin/linux32")
+glue.cpath(glue.bin .. "/bin/linux32/clib")
+glue.cpath(glue.bin .. "/bin/linux64")
+glue.cpath(glue.bin .. "/bin/linux64/clib")
+glue.cpath(glue.bin .. "/bin/osx32")
+glue.cpath(glue.bin .. "/bin/osx32/clib")
+glue.cpath(glue.bin .. "/bin/osx64")
+glue.cpath(glue.bin .. "/bin/osx64/clib")
+glue.cpath(glue.bin .. "/bin/mingw64")
+glue.cpath(glue.bin .. "/bin/mingw64/clib")
+glue.cpath(glue.bin .. "/bin/mingw32")
+glue.cpath(glue.bin .. "/bin/mingw32/clib")
+
+local pp = require'pp'
 
 seed.__scopes = {{}, {}}
 seed.__namespace = nil
@@ -566,9 +583,9 @@ local function _defmacro(args)
 	for i,v in ipairs(argseq) do
 		my_order[i] = _clean(v)
 	end
-	define({name, _functor(
-	(function(...)
-		local ar = {...}
+	_rawdefine(name, _functor(
+	(function(ar)
+--		local ar = {...}
 		seed.__scopes[#seed.__scopes + 1] = {}
 		seed.__scopes[#seed.__scopes]["&&&"] = {}
 		local i2 = 1
@@ -589,9 +606,9 @@ local function _defmacro(args)
 	end),
 	-1, -- macros must always be varargs because they won't understand groups otherwise.
 	seed.munge(_clean(name)),
-	nil,
+	false,
 	true
-	)})
+	))
 	return nil
 end
 
