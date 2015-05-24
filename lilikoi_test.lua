@@ -42,5 +42,6 @@ check("@(clean) '\6,foobar'")
 check("(defmacro component [ &&& ] (map (clean) &&&)) (component a 3 b 2)")
 check("(defmacro defwrapper [ name value ] (def name [ value ])) (defwrapper alpha ~ [ 1 2 3 ]) alpha")
 check("(def t [ 1 2 3 ]) (defmacro defwrapper [ name value ] (def name [ value ])) (defwrapper alpha t) (map (+ 1) (alpha =get 1))")
+check("(def t [ 10 20 30 ]) (defmacro defwrapper [ name value1 value2 ] (def name [ value1 value2 value2 ])) (defwrapper alpha ~ [ 1 2 3 ] ~ t) alpha")
 
 print'OK'

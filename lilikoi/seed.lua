@@ -377,6 +377,46 @@ local function _length(t)
 	end
 end
 
+local function _portion(t, starter, stopper, halt)
+	if type(t) == 'table' then
+		local stop = stopper or #t
+    local start = starter or 1
+    local part = {}
+    for i=start, #t do
+      local v = t[i]
+      if i > stop or v == halt then
+        return part
+      else
+        part[#part + 1] = v
+      end
+    end
+    return part
+	else
+		return t
+	end
+end
+
+local function _read_portion(t, starter, stopper, halt)
+	if type(t) == 'table' then
+		local stop = stopper or #t
+    local start = starter or 1
+    local part = {}
+    for i=start,#t do
+      local v = t[i]
+      if i > stop then
+        return part, #part
+      elseif v == halt then
+        return part, #part + 1
+      else
+        part[#part + 1] = v
+      end
+    end
+    return part, #part
+	else
+		return t, 1
+	end
+end
+
 local function _defunctor(f)
 	if type(f) == 'table' then
 		if f["\6op"] then return f["\6op"]
@@ -458,6 +498,8 @@ seed.__def(_unquote, 1, "unquote")
 seed.__def(_call, -1, "call")
 seed.__def(_call, -1, "@")
 seed.__def(_map, 2, "map")
+seed.__def(_portion, 3, "portion")
+seed.__def(_portion, 4, "until")
 seed.__def(_map, 3, "off-map")
 seed.__def(_vmap, -1, "vmap")
 
@@ -589,26 +631,35 @@ local function _defmacro(args)
 		seed.__scopes[#seed.__scopes + 1] = {}
 		seed.__scopes[#seed.__scopes]["&&&"] = {}
 		local i2 = 1
-		for i,ma in ipairs(ar) do
-			-- scope at element 'arg1' has value '\6,val1' for passed identifiers
-			-- so when anything tries to lookup arg1, it gets a quoted identifier.
-			if ma == "\6,~" then
-        local inner = seed.__eval(_map(_unquote, ar, i2))
-        for ii,mm in ipairs(inner) do
-          if my_order[i2 + ii - 1] then
-            seed.__scopes[#seed.__scopes][my_order[i2 + ii - 1]] = mm
-          else
-            table.insert(seed.__scopes[#seed.__scopes]["&&&"], mm)
+    if #ar > 0 then
+      local i, ma = 0, nil
+      while i < #ar do
+        i = i + 1
+        ma = ar[i]
+        -- scope at element 'arg1' has value '\6,val1' for passed identifiers
+        -- so when anything tries to lookup arg1, it gets a quoted identifier.
+        if ma == "\6,~" then
+          local part, plen = _read_portion(ar, i + 1, #ar, "\6,~")
+          i = i + plen
+          local inner = seed.__eval(_map(_unquote, part))
+          for ii = 1, #inner do
+            local mm = inner[ii]
+            if my_order[i2] then
+              seed.__scopes[#seed.__scopes][my_order[i2]] = mm
+              i2 = i2 + 1
+            else
+              table.insert(seed.__scopes[#seed.__scopes]["&&&"], mm)
+            end
           end
+        elseif my_order[i2] == nil or my_order[i2] == "&&&" then
+          table.insert(seed.__scopes[#seed.__scopes]["&&&"], ma)
+        else
+          seed.__scopes[#seed.__scopes][my_order[i2]] = ma
+          i2 = i2 + 1
         end
-        break
-			elseif my_order[i2] == nil or my_order[i2] == "&&&" then
-				table.insert(seed.__scopes[#seed.__scopes]["&&&"], ma)
-			else
-				seed.__scopes[#seed.__scopes][my_order[i2]] = ma
-				i2 = i + 1
-			end
-		end
+      end
+    end
+    
 		local tmp = _map(_unquote, args, arg_idx)
 		local ret = seed.__eval(tmp)
 		table.remove(seed.__scopes)
