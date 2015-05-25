@@ -44,4 +44,8 @@ check("(defmacro defwrapper [ name value ] (def name [ value ])) (defwrapper alp
 check("(def t [ 1 2 3 ]) (defmacro defwrapper [ name value ] (def name [ value ])) (defwrapper alpha t) (map (+ 1) (alpha =get 1))")
 check("(def t [ 10 20 30 ]) (defmacro defwrapper [ name value1 value2 ] (def name [ value1 value2 value2 ])) (defwrapper alpha ~ [ 1 2 3 ] ~ t) alpha")
 
+check("(map (*) [ 10 20 30 ])") --(defn call2 [ f v ] (call f v)) 
+
+check("(defgroup *[ ]* (map (*) &&&)) (vmap (supply call) *[ 2 3 4 ]* [ 10 20 30 ])") --(defn call2 [ f v ] (call f v)) 
+
 print'OK'

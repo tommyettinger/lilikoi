@@ -31,13 +31,34 @@ local function _directcall(fun, ...)
 end
 
 local function _givencall(fun, ...)
-	if #rawget(fun, "\6g") == 0 then return rawget(rawget(fun, "\6f"), "\6op")(...)
-	else return rawget(rawget(fun, "\6f"), "\6op")(unpack(rawget(fun, "\6g")), ...)
-	end
+  local filled, supplied, target = #rawget(fun, "\6g"), select('#', ...), rawget(rawget(fun, "\6f"), "\6arity")
+  if filled + supplied < target then
+    local g = {}
+    local nu = seed._partial(
+      rawget(fun, "\6f"),
+      g,
+      false,
+      rawget(fun, "\6c"))
+    if filled > 0 then  
+      for i=1,#rawget(fun, "\6g") do
+        rawset(g, #g+1, rawget(rawget(fun, "\6g"), i))
+      end
+      rawset(nu, "\6q", true)
+    end
+    if supplied > 0 then
+      for i=1,select('#',...) do
+        rawset(g, #g+1, (select(i,...)))
+      end
+      rawset(nu, "\6q", true)
+    end
+    return nu
+  elseif filled == 0 then return rawget(rawget(fun, "\6f"), "\6op")(...)
+  else return rawget(rawget(fun, "\6f"), "\6op")(unpack(rawget(fun, "\6g")), ...)
+  end
 end
 local _directmeta = {__call = _directcall}
 local _givenmeta = {__call = _givencall}
-function _functor(op, arity, name, group, macro)
+function seed._functor(op, arity, name, group, macro)
 	return setmetatable({
 		["\6op"] = op,
 		["\6arity"] = arity,
@@ -47,7 +68,7 @@ function _functor(op, arity, name, group, macro)
 	}, _directmeta)
 end
 
-local function _partial(fun, given, quote, complete)
+function seed._partial(fun, given, quote, complete)
 	return setmetatable({
 		["\6f"] = fun,
 		["\6g"] = given or {},
@@ -63,7 +84,7 @@ local function lookup_helper(name, pact, tgt)
 			if i > 2 then
 				if ret[a] == nil then return nil, nil end
 				if type(ret[a]) == 'function' then
-					ret = _functor(ret[a], -1, name)
+					ret = seed._functor(ret[a], -1, name)
 					seed.__scopes[1][name] = ret
 					return ret, name
 				else
@@ -107,7 +128,7 @@ function seed.__(name)
 	for s in glue.gsplit(name, ".", 1, true) do
 		p[#p + 1] = s
 	end
-	return _partial(_functor(lookup, 1, name), {p}, nil, true)
+	return seed._partial(seed._functor(lookup, 1, name), {p}, nil, true)
 end
 
 local nests = {}
@@ -122,14 +143,15 @@ function seed.__step(fun, arg, terminal)
 	if fun["\6op"] then
 		f = fun
 		given = {}
-		partial = _partial(fun, given)
+		partial = seed._partial(fun, given)
 	else
 		f = fun["\6f"]
 		given = fun["\6g"]
 		partial = fun
 	end
 	if partial["\6c"] then
-		return f["\6op"](unpack(given))
+    ided, nm = f["\6op"](unpack(given))
+		return {ided, nm}
 	end
 	if arg == nil then
 		if f["\6group"] then
@@ -198,11 +220,12 @@ function seed.__eval(upcoming)
 		local ided, nm = nil, nil
 		local terminal = #ahead == 0
 		if type(a) == 'function' then
-			a = _functor(a, -1, "__NATIVE")
+			a = seed._functor(a, -1, "__NATIVE")
 		end
 		
 		if type(a) == 'table' and a["\6c"] then
-			ided, nm = seed.__step(a, nil, true)
+      local identify = seed.__step(a, nil, true)
+			ided, nm = identify[1], identify[2]
 		end
 		if type(a) == 'table' and (a["\6group"] or (a["\6f"] and a["\6f"]["\6group"])) then
 			ided, nm = a, a["\6name"]
@@ -260,7 +283,7 @@ function seed.__eval(upcoming)
 						glue.reverse(r)
 						for i,v in ipairs(r) do
 							if type(v) == 'table' and v["\6op"] then
-								table.insert(ahead, _partial(v, {}, true))
+								table.insert(ahead, seed._partial(v, {}, true))
 							elseif type(v) == 'table' and v["\6f"] then
 								v["\6q"] = true
 								table.insert(ahead, v)
@@ -347,7 +370,7 @@ function seed.munge(name)
 end
 
 function seed.__def(op, arity, name, group, macro)
-	seed[seed.munge(name)] = _functor(op, arity, name, group, macro)
+	seed[seed.munge(name)] = seed._functor(op, arity, name, group, macro)
 end
 
 function _clean(name)
@@ -443,7 +466,11 @@ local function _map(f, coll, offset)
 	offset = offset or 0
 	for i,v in ipairs(coll) do
 		if i > offset then
-			rawset(coll2, #coll2 + 1, f(v))
+      local res = f(v)
+      if type(res) == 'table' and res["\6f"] and not res["\6c"] then
+        res["\6q"] = true
+      end
+			rawset(coll2, #coll2 + 1, res)
 		end
 	end
 	return coll2
@@ -456,6 +483,31 @@ end
 
 local function _pack(...)
 	return {...}
+end
+
+local function _supply(ar)
+  local args = _map(_unquote, ar)
+  local ff = table.remove(args, 1)
+	local f
+  if type(ff) == 'table' and ff["\6c"] then
+    f = ff()
+  elseif type(ff) == 'table' then
+    f = ff
+  elseif type(ff) == 'function' then
+      return seed._partial(seed._functor(ff, -1, "anonymous-partial"), args, true)
+  end
+	if type(f) == 'table' then
+    if f["\6g"] then
+      glue.extend(f["\6g"], args)
+      f["\6q"] = true
+      return f
+    elseif f["\6op"] then
+      return seed._partial(f, args, true)
+    end
+  elseif type(f) == 'function' then
+      return seed._partial(seed._functor(f, -1, "anonymous-partial"), args, true)
+  end
+  return nil
 end
 
 local function _reduce(f, coll, initial)
@@ -504,6 +556,7 @@ seed.__def(_map, 3, "off-map")
 seed.__def(_vmap, -1, "vmap")
 
 seed.__def(_apply, 2, "apply")
+seed.__def(_supply, -1, "supply", nil, true)
 seed.__def(unpack, 1, "unpack")
 seed.__def(_pack, -1, "pack")
 seed.__def(_reduce, 2, "reduce")
@@ -522,10 +575,11 @@ local function _lucompose(ftable)
 end
 
 local function _compose(...)
-	return _functor(_lucompose({...}), -1, "anonymous")
+	return seed._functor(_lucompose({...}), -1, "anonymous")
 end
 
 seed.__def(_compose, -1, "compose")
+
 local function _rawdefine(name, val)
 	if type(val) == 'table' and val["\6q"] then val["\6q"] = nil end
 	local scp = seed.__scopes[2]
@@ -572,7 +626,7 @@ local function _fn(args)
 	for i,v in ipairs(argseq) do
 		my_order[i] = _clean(v)
 	end
-	return _functor(
+	return seed._functor(
 	function(...)
 		local ar = {...}
 		seed.__scopes[#seed.__scopes + 1] = {}
@@ -603,6 +657,28 @@ local function _defn(args)
 	return nil
 end
 
+local function _defgroup(args)
+	local opener = table.remove(args, 1)
+	local closer = table.remove(args, 1)
+  _rawdefine(closer, seed._functor(glue.pass, 0, seed.munge(_clean(closer))))
+  _rawdefine(opener, seed._functor(function(...)
+    local ar = {...}
+		seed.__scopes[#seed.__scopes + 1] = {}
+		seed.__scopes[#seed.__scopes]["&&&"] = {}
+		for i,a in ipairs(ar) do
+			table.insert(seed.__scopes[#seed.__scopes]["&&&"], a)
+    end
+		local ret = seed.__eval(_map(_unquote, args))
+		table.remove(seed.__scopes)
+		return unpack(ret)
+	end,
+	-1,
+	seed.munge(_clean(opener)),
+  seed.munge(_clean(closer)),
+  nil))
+	return nil
+end
+
 
 local function _defmacro(args)
 	local name = table.remove(args, 1)
@@ -625,7 +701,7 @@ local function _defmacro(args)
 	for i,v in ipairs(argseq) do
 		my_order[i] = _clean(v)
 	end
-	_rawdefine(name, _functor(
+	_rawdefine(name, seed._functor(
 	(function(ar)
 --		local ar = {...}
 		seed.__scopes[#seed.__scopes + 1] = {}
@@ -700,6 +776,7 @@ end
 
 seed.__def(_fn, -1, "fn", nil, true)
 seed.__def(_defn, -1, "defn", nil, true)
+seed.__def(_defgroup, -1, "defgroup", nil, true)
 seed.__def(_defmacro, -1, "defmacro", nil, true)
 seed.__def(_ns, -1, "ns", nil, true)
 
