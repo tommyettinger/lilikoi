@@ -8,8 +8,42 @@ It translates to LuaJIT's dialect of Lua.
 
 ## EXAMPLES
 
-None yet, this whole project just started!
-
+All of this is likely to change, but currently you can (starting from the
+simplest)...
+* Do basic arithmetic:
+  `1 + 2` returns 3.
+* Group arithmetic into logical sections (there is no order of operations):
+  `2 * 3 / (5 - 3)` returns 2.5, since the group `(5 - 3)` goes separately
+  and the rest goes left to right.
+* Define constants and include functions from Lua's standard lib:
+  `(def pi2 (math.pi * 2)) pi2` returns a Lua number that's equal to 2*pi.
+* Create partial functions, pass them around, and call them when desired:
+  `(def inc (1 +)) (inc 5) + 4` returns 10. The value of inc is a
+  partial function, as in, it has only received some part of the argument
+  list it needs to return the desired value. When it gets 5, it adds 1 to
+  it, then adding 4 gets 10.
+* Create new functions to operate on data:
+  `(defn decimate [ num ] num * 0.9) (decimate 100)` returns 90. In square
+  brackets after defn and a name, you have an argument list (here with
+  only one argument, num), and everything after the brackets until the 
+  parenthesized group ends will be executed after temporarily giving the
+  arguments whatever values were passed to the function (here, num
+  becomes 100, so in the body, 100 * 0.9 is 90).
+* Use functions as first-class items:
+  `(defn decimate [ num ] num * 0.9) (map (decimate) [ 10 20 40 80 160 ])`
+  returns a Lua table with 5 elements: 9, 18, 36, 72, 144. It needs
+  parentheses around `decimate` so it doesn't try to call decimate on the
+  table; in future versions this is likely to change so you can call
+  a function that takes a scalar argument and call it implicitly on each
+  scalar element in a sequence.
+* Create macros, custom grouping functions, and soon actually useful,
+  new features like independent data and ways to access that data (the
+  concept of domains, basically first-class sets of indices). With the
+  right custom groups defined, you could run
+  `[:< "I eat" 5 "servings of fruit a day." >:]` and get back a result
+  modified by the grouping functions `[:< and >:]` such as
+  `"I want" 2 "whole fried chickens and a Coke."`
+  
 ## SETUP
 
 This repo uses multigit (scripts are included) to pull in its dependencies

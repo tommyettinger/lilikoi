@@ -46,6 +46,9 @@ check("(def t [ 10 20 30 ]) (defmacro defwrapper [ name value1 value2 ] (def nam
 
 check("(map (*) [ 10 20 30 ])") --(defn call2 [ f v ] (call f v)) 
 
-check("(defgroup *[ ]* (map (*) &&&)) (vmap (supply call) *[ 2 3 4 ]* [ 10 20 30 ])") --(defn call2 [ f v ] (call f v)) 
+check("(def inc (1 +)) (inc 5) + 4")
+check("(defn decimate [ num ] num * 0.9) (decimate 100)")
+check("(defn decimate [ num ] num * 0.9) (map (decimate) [ 10 20 40 80 160 ])")
+check("(defgroup *[ ]* (map (*) &&&)) (vmap (supply call) *[ 2 3 4 ]* [ 10 20 30 ])")
 
 print'OK'
