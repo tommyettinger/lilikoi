@@ -18,15 +18,16 @@ local function transfer(capt)
 		elseif capt[1] == 'KEYWORD' then
 			return '"\5' .. capt[2] .. '"'
 		elseif capt[1] == 'IDENTIFIER' then
-			return '__s.__("' .. seed.munge(capt[2]) .. '")'
+			return '"\5%' .. seed.munge(capt[2]) .. '"'
 		end
 	end
 	return " "
 end
 
-function seed.transpile(llk)
+function seed.transpile(llk, retain)
 	local lexed = grammar.lex(llk)
 	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.__run({'
+  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.__run_in({' end
 	local c = va.pack(va.map(transfer, unpack(lexed)))
 	local e1, erest = c(1), va.pack(c(2, c'#'))
 	lu = lu .. e1
@@ -45,6 +46,10 @@ end
 
 function seed.execute(llk)
 	return assert(loadstring(seed.transpile(llk)))()
+end
+
+function seed.execute_in(llk)
+	return assert(loadstring(seed.transpile(llk, true)))()
 end
 
 return transpiler

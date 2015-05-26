@@ -11,6 +11,7 @@ check("'hello, world!'")
 check("7 / 2")
 check("2.5 * 4 - (7 / 2)")
 check("1 + 2 * 3 / (10 * 1.2)")
+check("(10 * (6 / 5))")
 check("1 + 2 * (7 + 8 - 3) / (10 * (6 / 5))")
 check("[ 10 20 30 ]")
 check("(1 + math.pi)")
@@ -18,8 +19,8 @@ check("(math.max 2 3 math.pi)")
 check("([ 10 20 30 ] =get 2)")
 check("@(* 2) 3")
 check("[ ]")
-check("(execute '2 * 3 + 4')")
-check("(execute '2 * (3 + 4)') = 14")
+check("(execute_in '2 * 3 + 4')")
+check("(execute_in '2 * (3 + 4)') = 14")
 check("@(fn [ a b ] (b ^ a)) 3 2")
 check("(str (2 ^ 3))")
 check("(fn [ a b ] (math.max a b math.pi)) @ 3 2")
@@ -29,13 +30,11 @@ check("(defn formula [ a b ] (str (a ^ b) ' = ' a '^' b)) (formula 4 3)")
 check("(+ 1 2 4)")
 
 check("(call (* 2) 3)")
-
 check("map (* 2) [ 1 2 3 ]")
 check("(off-map (* 2) [ 'foo' 1 2 3 ] 1)")
 check("(vmap (*) [ 1 2 3 4 ] [ 10 20 30 ])")
 check("(reduce (+) [ 1 2 3 4 ])")
 check("(reduce-with (^) [ 1 2 3 ] 2)")
-
 check("(defn sum [ &&& ] (reduce (+) &&&)) (sum 2 4 6 8)")
 
 check("@(clean) '\6,foobar'")
@@ -44,11 +43,11 @@ check("(defmacro defwrapper [ name value ] (def name [ value ])) (defwrapper alp
 check("(def t [ 1 2 3 ]) (defmacro defwrapper [ name value ] (def name [ value ])) (defwrapper alpha t) (map (+ 1) (alpha =get 1))")
 check("(def t [ 10 20 30 ]) (defmacro defwrapper [ name value1 value2 ] (def name [ value1 value2 value2 ])) (defwrapper alpha ~ [ 1 2 3 ] ~ t) alpha")
 
-check("(map (*) [ 10 20 30 ])") --(defn call2 [ f v ] (call f v)) 
-
+check("(map (*) [ 10 20 30 ])")
 check("(def inc (1 +)) (inc 5) + 4")
 check("(defn decimate [ num ] num * 0.9) (decimate 100)")
 check("(defn decimate [ num ] num * 0.9) (map (decimate) [ 10 20 40 80 160 ])")
+check("(defgroup *[ ]* (map (*) &&&)) *[ 2 3 4 ]*")
 check("(defgroup *[ ]* (map (*) &&&)) (vmap (supply call) *[ 2 3 4 ]* [ 10 20 30 ])")
 
 print'OK'

@@ -1,11 +1,7 @@
 local seed = require'lilikoi.seed'
 
 local function coredef(op, arity, name)
-	seed[name] =
-		{["\6op"] = op,
-		["\6arity"] = arity,
-		["\6name"] = name,
-		}
+	seed[name] = seed._functor(op, arity, name)  
 end
 
 local function add(a, b)
@@ -31,10 +27,7 @@ coredef(pow, 2, "^")
 local function mod(a, b)
 	return a % b
 end
-seed["\6mod"] = {["\6op"] = mod,
-		["\6arity"] = 2,
-		["\6name"] = "%",
-		}
+seed["\6mod"] = seed._functor(mod, 2, "%")
 local function eq(a, b)
 	return a == b
 end
