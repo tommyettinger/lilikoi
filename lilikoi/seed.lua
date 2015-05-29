@@ -23,6 +23,7 @@ glue.cpath(glue.bin .. "/bin/mingw32/clib")
 
 local pp = require'pp'
 seed.__inlists = {}
+seed.__outlists = {}
 
 seed.__scopes = {{}, {}}
 seed.__namespace = nil
@@ -208,7 +209,10 @@ function seed.__step(fun, arg, terminal)
 			or (arg["\6f"] and arg["\6f"]["\6group"])) then
 		nests[#nests + 1] =  (arg["\6group"] or arg["\6f"]["\6group"])
 		given[#given + 1] = arg
-	else--]]if f["\6arity"] == -1 or #given < f["\6arity"] then
+	else--]]
+  if f["\6group"] then
+    given = glue.extend(given, arg)
+  elseif f["\6arity"] == -1 or #given < f["\6arity"] then
 		given[#given + 1] = arg
 	end
 	if #given == f["\6arity"] then
@@ -232,14 +236,15 @@ end
 -- is usually a group but can be any result of a functiom,
 -- then returns the final outlist produced by that form.
 function seed.__eval()
-	local outlist = {}
+	local outlist = seed.__outlists[#seed.__outlists] or {}
+  local inlist = seed.__inlists[#seed.__inlists] or {}
   local halt = nil
-	while #seed.__inlists[#seed.__inlists] > 0 and not halt do
+--	while #seed.__inlists[#seed.__inlists] > 0 and not halt do
 		-- consume any tokens that were used
 		local a = table.remove(seed.__inlists[#seed.__inlists])
 		local ided, nm = seed._identify(a)
-    halt = nm == ''
-		local terminal = #(seed.__inlists[#seed.__inlists]) == 0 or halt
+    halt = ided == '\5%stop'
+		local terminal = #(seed.__inlists[#seed.__inlists]) == 0 -- or halt
 		if type(a) == 'function' then
 			a = seed._functor(a, -1, "__NATIVE")
 		end
@@ -260,8 +265,8 @@ function seed.__eval()
           table.remove(nests)
           if #nests < nestlevel then
             -- we have ended the macro
-            table.remove(outlist)
-            r = seed.__step(outlist[#outlist], nil, true) -- NOTE using nm, not ided
+            
+            r = seed.__step(table.remove(outlist), nil, true) -- NOTE using nm, not ided
             for i= #r, 1, -1 do
               table.insert(seed.__inlists[#seed.__inlists], r[i])
             end
@@ -273,6 +278,7 @@ function seed.__eval()
 			end
 			r = seed.__step(outlist[#outlist], q, terminal) -- NOTE using nm, not ided    
       outlist[#outlist] = r
+      return r
 		else
 			-- we are not running through a macro
 			if ided and not (type(ided) == 'table' and (ided["\6op"] or ided["\6f"])) then
@@ -287,9 +293,13 @@ function seed.__eval()
 				-- if we are continuing a function that is on the outlist, and that
 				-- function is a grouper, repeatedly eval until the group has closed.
         local r, top
-        table.insert(seed.__inlists[#seed.__inlists], a)
+--        table.insert(seed.__inlists[#seed.__inlists], a)
         repeat
           r = seed.__eval()
+          top = r[#r]
+          if '\5%' == top then
+            table.remove(r)
+          end
           if not r["\5"] then
             -- if the eval produced a function call result, then the return of
             -- that call has been pushed to inlist, and should be read in by
@@ -299,21 +309,25 @@ function seed.__eval()
             -- results, then we want to put that data into the group.
             outlist[#outlist] = seed.__step(outlist[#outlist], r, terminal)
           end
-          top = r[#r]
         until ('\5%' == top or #seed.__inlists[#seed.__inlists] == 0)
         table.remove(nests)
         nestlevel = #nests
-        outlist[#outlist] = seed.__step(outlist[#outlist], nil, true)
+        local otemp = table.remove(outlist)
+        glue.extend(outlist, seed.__step(otemp, nil, true))
         local o = {["\5"] = true}
         for i=1, #outlist do
-          local v = outlist[#outlist][i]
+          local v = outlist[i]
           if type(v) == 'table' and v["\6op"] then
-            table.insert(o, seed._partial(v, {}, true))
+            local tv = seed._partial(v, {}, true)
+            table.insert(o, tv)
+--            table.insert(seed.__inlists[#seed.__inlists], tv)
           elseif type(v) == 'table' and v["\6f"] then
             v["\6q"] = true
             table.insert(o, v)
+--            table.insert(seed.__inlists[#seed.__inlists], v)
           else
             table.insert(o, v)
+--            table.insert(seed.__inlists[#seed.__inlists], v)
           end
 				end
         -- we have read one form, return it as a list of all results
@@ -345,7 +359,8 @@ function seed.__eval()
         if ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"]) then
 				-- if we have just started executing a grouping function,
 				-- ignore the current outlist and start the grouping.
-					outlist[#outlist + 1] = seed.__step(ided, nil, terminal)
+					
+          seed.__outlists[#seed.__outlists + 1] = {}
           
           if ided["\6group"] or ided["\6f"]["\6group"] then
             nests[#nests + 1] = ided["\6group"] or ided["\6f"]["\6group"]
@@ -353,13 +368,58 @@ function seed.__eval()
 		
           nestlevel = #nests
           
+          repeat
+            r = seed.__eval()
+            top = r[#r]
+            if '\5%stop' == top then
+              table.remove(r)
+            end
+            if not r["\5"] then
+--              ided = seed.__step(ided, r, terminal)
+            end
+          until ('\5%stop' == top or #seed.__inlists[#seed.__inlists] == 0)
+          if '\5%stop' == top then
+            table.remove(seed.__outlists[#seed.__outlists])
+            table.remove(nests)
+            nestlevel = #nests
+          end
+          local otemp = table.remove(seed.__outlists)
+          local res = seed.__step(ided, otemp, true)
+          local o = {["\5"] = true}
+          for i = #res, 1, -1 do
+            local v = res[i]
+            if type(v) == 'table' and v["\6op"] then
+              local tv = seed._partial(v, {}, true)
+              table.insert(o, tv)
+              table.insert(inlist, tv) -- 
+            elseif type(v) == 'table' and v["\6f"] then
+              v["\6q"] = true
+              table.insert(o, v)
+              table.insert(inlist, v) -- seed.__inlists[#seed.__inlists]
+            else
+              table.insert(o, v)
+              table.insert(inlist, v) -- seed.__inlists[#seed.__inlists]
+            end
+          end
+          -- we have read one form, return it as a list of all results
+          return o
+        
+          
 				elseif type(outlist[#outlist]) == 'table' and (outlist[#outlist]["\6op"] or
             outlist[#outlist]["\6f"]) then
 				-- if we are continuing a function and encounter another function,
-				-- terminate the continuing function, and push to the inlist
-				-- the results of the terminated function and the current function.
-          local prev = seed.__step(outlist[#outlist], nil, true)
-					outlist[#outlist + 1] = seed.__step(ided, nil, terminal)
+				-- terminate the continuing function, and call the current function
+        -- with the result of the previous.
+          local prev = seed.__step(table.remove(outlist), nil, true)
+          if prev["\6op"] then
+            table.insert(outlist, seed._partial(prev, {}, true))
+          elseif prev["\6g"] then
+            prev["\6q"] = true
+            table.insert(outlist, prev)
+          else
+            outlist = glue.extend(outlist, prev)
+          end
+					outlist[#outlist] = seed.__step(ided, prev, terminal)
           
 					if(outlist[#outlist]["\5"]) then
             if outlist[#outlist][1] == '\5%stop' then
@@ -367,15 +427,16 @@ function seed.__eval()
               for i= #prev, 1, -1 do
                 local v = prev[i]
                 if type(v) == 'table' and v["\6op"] then
-                  table.insert(o, seed._partial(v, {}, true))
+--                  table.insert(o, seed._partial(v, {}, true))
+                  table.insert(o, seed._partial(v, {}))
                 elseif type(v) == 'table' and v["\6f"] then
-                  v["\6q"] = true
+--                  v["\6q"] = true
                   table.insert(o, v)
                 else
                   table.insert(o, v)
                 end
               end
-              o[#o + 1] = '\5%'
+              o[#o + 1] = '\5%stop'
               return o
             end
             local r = glue.extend(prev, table.remove(outlist))
@@ -406,31 +467,35 @@ function seed.__eval()
             if(r["\5"]) then
               if r[1] == '\5%stop' then
                 outlist[#outlist + 1] = '\5%'
-                outlist["\5"] = nil
-                return outlist
+                r["\5"] = nil
+                return r
               end
+              
               for i= #r, 1, -1 do
                 table.insert(seed.__inlists[#seed.__inlists], r[i])
               end
               for i= #outlist, 1, -1 do
                 table.insert(seed.__inlists[#seed.__inlists], outlist[i])
               end
-              return r
+              
+              -- return r
             else
               outlist[start] = r
             end
+            return r
           else
             r = seed.__step(ided, outlist[#outlist], terminal)
             if(r["\5"]) then
               table.remove(outlist)
+              --[[
               for i= #r, 1, -1 do
                 table.insert(seed.__inlists[#seed.__inlists], r[i])
-              end
-              return r
+              end--]]
+              -- return r
             else
               outlist[start] = r
             end
-
+            return r
           end
 				end
 			elseif type(outlist[#outlist]) == 'table' and (outlist[#outlist]["\6op"] or
@@ -440,15 +505,22 @@ function seed.__eval()
 				-- and we have been given data and not a new function,
 				-- replace the top of the outlist with the function part-called
 				-- with the latest item received.    
-				local r = seed.__step(outlist[#outlist], a, terminal) -- NOTE using a, again
+        local ol = table.remove(outlist)
+        local r
+        if '\5%stop' == a then
+          r = seed.__step(ol, nil, true) -- NOTE using a, again
+        else
+          r = seed.__step(ol, a, terminal) -- NOTE using a, again
+        end
 				if(r["\5"]) then
-					table.remove(outlist)
 					for i=#r, 1, -1 do
-						table.insert(seed.__inlists[#seed.__inlists], r[i])
+						table.insert(outlist, r[i])
 					end
-				else
-					outlist[#outlist] = r
+        else
+					outlist[#outlist + 1] = r
 				end
+        return r
+
 			else
 				-- if we are not continuing or starting a function,
 				-- append a piece of data to the outlist.
@@ -457,9 +529,10 @@ function seed.__eval()
         -- this is an element of a list or something similar,
         -- and will be returned when the list terminates.
 				outlist[#outlist + 1] = a
+        return {a}
 			end
 		end
-	end
+	
   if(#(seed.__inlists[#seed.__inlists]) == 0) then
     table.remove(seed.__inlists)
   end
@@ -467,7 +540,11 @@ function seed.__eval()
 end
 
 function seed._minirun(program)
-  seed.__inlists[#seed.__inlists + 1] = glue.reverse(program)
+  table.insert(program, "\5%)")
+  local prog = glue.reverse(program)
+  table.insert(prog, "\5%(")
+  
+  seed.__inlists[#seed.__inlists + 1] = prog
   return seed.__eval()
 end
 
@@ -477,14 +554,15 @@ end
 -- identifier strings and data.
 function seed.__run(program)
 	nests = {}
-	seed.__inlists[#seed.__inlists + 1] = glue.reverse(program)
+  seed.__outlists = {}
+	seed.__inlists = {glue.reverse(program)}
   seed.__scopes = {{},{}}
 	seed.__namespace = nil
 	
 	return unpack(seed.__eval())
 end
 
--- the entry point for a program. Keeps any possible lingering state,
+-- a re-entry point for a program. Keeps any possible lingering state,
 -- then returns any number of args (ideally 1, if the program
 -- completed with one return value) based on evaluating a list of
 -- identfier strings and data.
@@ -806,7 +884,7 @@ local function _defgroup(args)
 	local opener = table.remove(args, 1)
 	local closer = table.remove(args, 1)
   local cleanopener, cleancloser = seed.munge(seed._clean(opener)), seed.munge(seed._clean(closer))
-  _rawdefine(closer, seed._functor(seed._close, 0, cleancloser))
+  _rawdefine(closer, '\5%stop') -- seed._functor(seed._close, 0, cleancloser)
   _rawdefine(opener, seed._functor(function(...)
     local ar = {...}
 		seed.__scopes[#seed.__scopes + 1] = {}
@@ -977,11 +1055,12 @@ end
 
 seed.__def(glue.pass, -1, "(", ")")
 
-seed.__def(seed._close, 0, ")")
+seed[")"] = '\5%stop'
+--seed.__def(seed._close, 0, ")")
 
 seed.__def(seed.__sequence, -1, "[", "]")
 
-seed.__def(seed._close, 0, "]")
+seed["]"] = '\5%stop'
 
 seed.__def(_basic_get, 2, "=get")
 local function _stringify(v)
