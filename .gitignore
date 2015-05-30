@@ -55,6 +55,7 @@ syscall/**
 !lilikoi.md
 !lilikoi.lua
 !lilikoi_test.lua
+!fun.lua
 
 # jEdit garbage
 *~
