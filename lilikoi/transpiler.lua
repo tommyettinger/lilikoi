@@ -9,15 +9,15 @@ local glue = require'glue'
 local function transfer(capt)
 	if capt[1] then
 		if capt[2] == "_" then
-			return '"\5%nil"'
+			return '"\6nil"'
 		elseif capt[1] == 'STRING' or capt[1] == 'NUMBER' then
-			return capt[2]
+			return string.gsub(capt[2], "\n", "\\n")
 		elseif capt[1] == 'COMMENT' then
-			return capt[2] .. "\n"
+			return capt[2] .. '\n'
 		elseif capt[1] == 'KEYWORD' then
 			return '"\5' .. capt[2] .. '"'
 		elseif capt[1] == 'IDENTIFIER' then
-			return '"\5%' .. seed.munge(capt[2]) .. '"'
+			return '"\6' .. seed.munge(capt[2]) .. '"'
 		end
 	end
 	return " "

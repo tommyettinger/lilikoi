@@ -47,7 +47,7 @@ patterns.alnum = R('AZ', 'az', '09')
 patterns.lower = R('az')
 patterns.upper = R('AZ')
 patterns.xdigit = R('09', 'AF', 'af')
--- patterns.cntrl = R('\000\031')
+patterns.cntrl = R('\000\031')
 -- patterns.graph = R('!~')
 -- patterns.print = R(' ~')
 -- patterns.punct = R('!/', ':@', '[\'', '{~')
@@ -79,7 +79,7 @@ local function token(name, patt)
   if name == 'WHITESPACE' then
     return patt  -- do not capture whitespace.
   end
-  return Ct(Cc(name) * C(patt) * Cp())
+  return Ct(Cc(name) * C(patt) * Cc(nil))
 end
 M.token = token
 ---
@@ -127,14 +127,10 @@ local function delimited_range(chars, single_line, no_escape, balanced)
 end
 M.delimited_range = delimited_range
 
-
-
-
 local lexer = {}
 local space = S('\t\v\f\n\r ,')^1
 -- Whitespace.
 local ws = token('WHITESPACE', space)
-local paren = token('IDENTIFIER', S")(")
 local equals = P"="^0
 local open = "[" * Cg(equals, "init") * "[" * P"\n"^-1
 local close = "]" * C(equals) * "]"
@@ -142,44 +138,47 @@ local closeeq = Cmt(close * Cb("init"), function (s, i, a, b) return a == b end)
 local longstring = open * (P(1) - closeeq)^0 * close / 1
 
 -- Comments.
-local line_comment = '--' * patterns.nonnewline^0
-local block_comment = '--' * longstring
-local comment = token('COMMENT', block_comment + line_comment) * (space + -1)
+local line_comment = ';' * patterns.nonnewline^0
+local block_comment = ';;' * longstring
+local comment = token('COMMENT', block_comment + line_comment)
 
 -- Strings.
-local sq_str = delimited_range("'")
+--local sq_str = delimited_range("'")
 local dq_str = delimited_range('"')
-local string = token('STRING', sq_str + dq_str + longstring) * (space + -1 + paren)
+local str = token('STRING', dq_str)
 
 -- Numbers.
 local lj_int = S('-')^-1 * ((patterns.dec_num + patterns.hex_num) * (P('ULL') + P('ull') + P('LL') + P('ll'))^-1)
-local number = token('NUMBER', patterns.float + lj_int) * (space + -1 + paren)
+local number = token('NUMBER', patterns.float + lj_int)
 
 -- Identifiers.
 
-local un_ids = S("\t\v\f\n\r \"',)(")^1
+local un_ids = (patterns.cntrl + S(" \"',)(][}{#^"))^1
 local ids = 1 - un_ids
 
-local identifier = token('IDENTIFIER', ids^1) * (space + -1 + paren)
-local keyword = token('KEYWORD', S(':') * ids^1) * (space + -1 + paren)
+local identifier = token('IDENTIFIER', ids^1)
+local keyword = token('KEYWORD', S(':') * ids^1)
+
+local form = P{"single";
+  single = (str + number +  keyword + identifier + V"paren" + V"brace" + V"bracket") * ws^0,
+  paren = token('PAREN', (P'#(' + P'(') * V"single"^0 *  P')'),
+  brace = token('BRACE', (P'#{' + P'{') * V"single"^0 *  P'}'),
+  bracket = token('BRACKET', (P'#[' + P'[') * V"single"^0 *  P']')
+}
+
+local met = P'^' * form
 
 lexer._RULES = {
-  group=paren,
   whitespace=ws,
-  string=string,
   comment=comment,
-  number=number,
-  keyword=keyword,
-  identifier=identifier
+  meta=met,
+  form=form
 }
 lexer._RULEORDER = {
-  'group',
   'whitespace',
-  'string',
   'comment',
-  'number',
-  'keyword',
-  'identifier'
+  'meta',
+  'form'
 }
 
 -- (Re)constructs `lexer._TOKENRULE`.

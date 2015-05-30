@@ -1,13 +1,39 @@
-local lil = require'lilikoi'
-local pp = require'pp'
+--local lil = require'lilikoi'
+local glue = require'glue'
+glue.luapath(glue.bin)
+glue.cpath(glue.bin)
+glue.cpath(glue.bin .. "/bin")
+glue.cpath(glue.bin .. "/bin/linux32")
+glue.cpath(glue.bin .. "/bin/linux32/clib")
+glue.cpath(glue.bin .. "/bin/linux64")
+glue.cpath(glue.bin .. "/bin/linux64/clib")
+glue.cpath(glue.bin .. "/bin/osx32")
+glue.cpath(glue.bin .. "/bin/osx32/clib")
+glue.cpath(glue.bin .. "/bin/osx64")
+glue.cpath(glue.bin .. "/bin/osx64/clib")
+glue.cpath(glue.bin .. "/bin/mingw64")
+glue.cpath(glue.bin .. "/bin/mingw64/clib")
+glue.cpath(glue.bin .. "/bin/mingw32")
+glue.cpath(glue.bin .. "/bin/mingw32/clib")
 
+local pp = require'pp'
+local grammar = require'lilikoi.grammar'
+pp(grammar.lex("1"))
+pp(grammar.lex('"abc"'))
+pp(grammar.lex('"abcd" 2'))
+pp(grammar.lex('()'))
+pp(grammar.lex('(1)'))
+pp(grammar.lex('[1]'))
+pp(grammar.lex('(reduce + [1 2 3])'))
+pp(grammar.lex('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})'))
+--[[
 local function check(llk)
 	print(llk)
 	pp(lil.translate(llk))
 	pp(lil.run(llk))
 end
 check("(str (2 ^ 3))")
-
+--]]
 --check("'hello, world!'")
 --check("7 / 2")
 --[[
@@ -26,10 +52,10 @@ check("([ 10 20 30 ] =get 2)")
 
 check("@(* 2) 3")
 check("[ ]")
---]]
+
 check("(execute_in '2 * 3 + 4')")
 check("(execute_in '2 * (3 + 4)') = 14")
---]]
+
 check("(fn [ a b ] (b ^ a)) 3 2")
 check("(str (2 ^ 3))")
 check("(fn [ a b ] (math.max a b math.pi)) @ 3 2")
@@ -58,5 +84,5 @@ check("(defn decimate [ num ] num * 0.9) (decimate 100)")
 check("(defn decimate [ num ] num * 0.9) (map (decimate) [ 10 20 40 80 160 ])")
 check("(defgroup *[ ]* (map (*) &&&)) *[ 2 3 4 ]*")
 check("(defgroup *[ ]* (map (*) &&&)) (vmap (supply call) *[ 2 3 4 ]* [ 10 20 30 ])")
-
+--]]
 print'OK'
