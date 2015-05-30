@@ -138,9 +138,13 @@ local closeeq = Cmt(close * Cb("init"), function (s, i, a, b) return a == b end)
 local longstring = open * (P(1) - closeeq)^0 * close / 1
 
 -- Comments.
-local line_comment = ';' * patterns.nonnewline^0
-local block_comment = ';;' * longstring
-local comment = token('COMMENT', block_comment + line_comment)
+local line_comment = ';' * C(patterns.nonnewline^0)
+local block_comment = ';;' * C(longstring)
+local comment = Ct(Cc('COMMENT') * ((block_comment + line_comment) / 1) * Cc(nil))
+--('COMMENT', block_comment + line_comment)
+
+-- Token insides
+-- Ct(Cc(name) * C(patt) * Cc(nil))
 
 -- Strings.
 --local sq_str = delimited_range("'")
@@ -153,31 +157,31 @@ local number = token('NUMBER', patterns.float + lj_int)
 
 -- Identifiers.
 
-local un_ids = (patterns.cntrl + S(" \"',)(][}{#^"))^1
+local un_ids = (patterns.cntrl + S(" \"',;)(][}{#^"))^1
 local ids = 1 - un_ids
 
 local identifier = token('IDENTIFIER', ids^1)
 local keyword = token('KEYWORD', S(':') * ids^1)
 
 local form = P{"single";
-  single = (str + number +  keyword + identifier + V"paren" + V"brace" + V"bracket") * ws^0,
+  single = (str + number +  keyword + identifier +
+    V"dis" + V"met" + V"paren" + V"brace" + V"bracket") * (ws + comment)^0,
   paren = token('PAREN', (P'#(' + P'(') * V"single"^0 *  P')'),
   brace = token('BRACE', (P'#{' + P'{') * V"single"^0 *  P'}'),
-  bracket = token('BRACKET', (P'#[' + P'[') * V"single"^0 *  P']')
-}
+  bracket = token('BRACKET', (P'#[' + P'[') * V"single"^0 *  P']'),
+  met = token('META', P'^' * V"single" * V"single"),
+  dis = Cmt(P'#_' * V"single", function(s, i, ...) return true end)
 
-local met = P'^' * form
+}
 
 lexer._RULES = {
   whitespace=ws,
   comment=comment,
-  meta=met,
   form=form
 }
 lexer._RULEORDER = {
   'whitespace',
   'comment',
-  'meta',
   'form'
 }
 

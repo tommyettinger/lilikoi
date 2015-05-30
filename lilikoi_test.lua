@@ -26,6 +26,8 @@ pp(grammar.lex('(1)'))
 pp(grammar.lex('[1]'))
 pp(grammar.lex('(reduce + [1 2 3])'))
 pp(grammar.lex('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})'))
+pp(grammar.lex('(reduce #(str %1 (val %2)) ^[:what ever] {:a 1 :b 2})'))
+pp(grammar.lex("(reduce + ;;[[commentary\nYou'd think this should work, right?]] [1 2 3])"))
 --[[
 local function check(llk)
 	print(llk)
