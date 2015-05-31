@@ -122,7 +122,7 @@ local function delimited_range(chars, single_line, no_escape, balanced)
   if balanced and s ~= e then
     return P{s * (range + V(1))^0 * e}
   else
-    return s * range^0 * P(e) -- was:    return s * range^0 * P(e)^-1
+    return s * C(range^0) * P(e) -- was:    return s * range^0 * P(e)^-1
   end
 end
 M.delimited_range = delimited_range
@@ -149,7 +149,7 @@ local comment = Ct(Cc('COMMENT') * ((block_comment + line_comment) / 1) * Cc(nil
 -- Strings.
 --local sq_str = delimited_range("'")
 local dq_str = delimited_range('"')
-local str = token('STRING', dq_str)
+local str = Ct(Cc('STRING') * dq_str * Cc(nil))
 
 -- Numbers.
 local lj_int = S('-')^-1 * ((patterns.dec_num + patterns.hex_num) * (P('ULL') + P('ull') + P('LL') + P('ll'))^-1)
@@ -157,21 +157,22 @@ local number = token('NUMBER', patterns.float + lj_int)
 
 -- Identifiers.
 
-local un_ids = (patterns.cntrl + S(" \"',;)(][}{#^"))^1
+local un_ids = (patterns.cntrl + S(" \"',;)(][}{#^.`~\\$"))^1
 local ids = 1 - un_ids
 
 local identifier = token('IDENTIFIER', ids^1)
+local chain = Ct(Cc('CHAIN') * Ct((identifier * P".")^1 * identifier) * Cc(nil))
 local keyword = token('KEYWORD', S(':') * ids^1)
 
 local form = P{"single";
-  single = (str + number +  keyword + identifier +
-    V"dis" + V"met" + V"paren" + V"brace" + V"bracket") * (ws + comment)^0,
-  paren = token('PAREN', (P'#(' + P'(') * V"single"^0 *  P')'),
-  brace = token('BRACE', (P'#{' + P'{') * V"single"^0 *  P'}'),
-  bracket = token('BRACKET', (P'#[' + P'[') * V"single"^0 *  P']'),
-  met = token('META', P'^' * V"single" * V"single"),
-  dis = Cmt(P'#_' * V"single", function(s, i, ...) return true end)
-
+  single = (str + number +  keyword + chain + identifier +
+    V"dis" + V"met" + V"pref" + V"paren" + V"brace" + V"bracket") * (ws + comment)^0,
+  paren = Ct(Cc('PAREN') * C(P'#(' + P'(') * V"single"^0 *  P')' * Cc(nil)),
+  brace = Ct(Cc('BRACE') * C(P'#{' + P'{') * V"single"^0 *  P'}' * Cc(nil)),
+  bracket = Ct(Cc('BRACKET') * C(P'#[' + P'[') * V"single"^0 *  P']' * Cc(nil)),
+  met = Ct(Cc('META') * P'^' * V"single" * V"single" * Cc(nil)),
+  dis = Cmt(P'#_' * V"single", function(s, i, ...) return true end),
+  pref = Ct(Cc('PREFIX') * C(S"`~'$") * V"single" * Cc(nil))
 }
 
 lexer._RULES = {
@@ -194,7 +195,6 @@ local function join_tokens()
   return lexer._TOKENRULE
 end
 lexer._GRAMMAR = Ct(join_tokens()^0)
-
 
 ---
 -- Lexes a chunk of text *text*.

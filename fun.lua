@@ -33,7 +33,7 @@ MIT/X11 License: http://www.opensource.org/licenses/mit-license.php
 --------------------------------------------------------------------------------
 -- Tools
 --------------------------------------------------------------------------------
-
+local pp = require'pp'
 local return_if_not_empty = function(state_x, ...)
     if state_x == nil then
         return nil
@@ -490,6 +490,16 @@ local foldl = function(fun, start, gen, param, state)
     return start
 end
 
+local reduce = function(fun, gen, param, state)
+    local gen_x, param_x, state_x = iter(gen, param, state)
+    local start
+    state_x, start = gen_x(param_x, state_x)
+    while state_x ~= nil do
+        state_x, start = foldl_call(fun, start, gen_x(param_x, state_x))
+    end
+    return start
+end
+
 local length = function(gen, param, state)
     local gen, param, state = iter(gen, param, state)
     if gen == ipairs or gen == string_gen then
@@ -940,7 +950,8 @@ local exports = {
     -- Reducing
     ----------------------------------------------------------------------------
     foldl = foldl,
-    reduce = foldl, -- an alias
+    -- reduce = foldl, -- an alias
+    reduce = reduce,
     length = length,
     is_null = is_null,
     is_prefix_of = is_prefix_of,

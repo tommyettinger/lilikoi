@@ -5,19 +5,27 @@
 local seed = require'lilikoi.seed'
 local grammar = require'lilikoi.grammar'
 local glue = require'glue'
-
+local fun = require 'fun' ()
 local function transfer(capt)
 	if capt[1] then
-		if capt[2] == "_" then
-			return '"\6nil"'
-		elseif capt[1] == 'STRING' or capt[1] == 'NUMBER' then
-			return string.gsub(capt[2], "\n", "\\n")
+		if capt[2] == "nil" then
+			return '"\1nil"'
+		elseif capt[2] == "true" then
+			return 'true'
+		elseif capt[2] == "false" then
+			return 'false'
+		elseif capt[1] == 'STRING' then
+			return '"\2'.. capt[2] .. '"'
+		elseif capt[1] == 'NUMBER' then
+			return capt[2]
 		elseif capt[1] == 'COMMENT' then
-			return capt[2] .. '\n'
+			return '--' .. capt[2] .. '\n'
 		elseif capt[1] == 'KEYWORD' then
 			return '"\5' .. capt[2] .. '"'
 		elseif capt[1] == 'IDENTIFIER' then
-			return '"\6' .. seed.munge(capt[2]) .. '"'
+			return '"\1' .. capt[2] .. '"'
+		elseif capt[1] == 'CHAIN' then
+			return '{"\1chain",' .. reduce(function(a, b) return a .. "," .. b end, map(transfer, capt[2])) .. '}'
 		end
 	end
 	return " "

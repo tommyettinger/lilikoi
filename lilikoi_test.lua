@@ -17,10 +17,11 @@ glue.cpath(glue.bin .. "/bin/mingw32")
 glue.cpath(glue.bin .. "/bin/mingw32/clib")
 
 local pp = require'pp'
+local fun = require'fun' ()
 local grammar = require'lilikoi.grammar'
 pp(grammar.lex("1"))
 pp(grammar.lex('"abc"'))
-pp(grammar.lex('"abcd" 2'))
+pp(grammar.lex('"ab\ncd" 2'))
 pp(grammar.lex('()'))
 pp(grammar.lex('(1)'))
 pp(grammar.lex('[1]'))
@@ -28,6 +29,11 @@ pp(grammar.lex('(reduce + [1 2 3])'))
 pp(grammar.lex('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})'))
 pp(grammar.lex('(reduce #(str %1 (val %2)) ^[:what ever] {:a 1 :b 2})'))
 pp(grammar.lex("(reduce + ;;[[commentary\nYou'd think this should work, right?]] [1 2 3])"))
+pp(grammar.lex("(reduce + '(1 2 3))"))
+pp(grammar.lex("(apply math.min '(1 2 3))"))
+pp(grammar.lex("(defmacro defvariad [opname op] `(defn ~opname [& $args] (reduce ~op $args)))"))
+pp(grammar.lex("(apply '~$math.min.foo.bar '''(1 2 3))"))
+
 --[[
 local function check(llk)
 	print(llk)
