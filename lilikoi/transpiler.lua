@@ -6,46 +6,109 @@ local seed = require'lilikoi.seed'
 local grammar = require'lilikoi.grammar'
 local glue = require'glue'
 local fun = require 'fun' ()
-local function transfer(capt)
-	if capt[1] then
-		if capt[2] == "nil" then
-			return '"\1nil"'
-		elseif capt[2] == "true" then
-			return 'true'
-		elseif capt[2] == "false" then
-			return 'false'
-		elseif capt[1] == 'STRING' then
-			return '"\2'.. capt[2] .. '"'
-		elseif capt[1] == 'NUMBER' then
-			return capt[2]
-		elseif capt[1] == 'COMMENT' then
-			return '--' .. capt[2] .. '\n'
-		elseif capt[1] == 'KEYWORD' then
-			return '"\5' .. capt[2] .. '"'
-		elseif capt[1] == 'IDENTIFIER' then
-			return '"\1' .. capt[2] .. '"'
-		elseif capt[1] == 'CHAIN' then
-			return '{"\1chain",' .. reduce(function(a, b) return a .. "," .. b end, map(transfer, capt[2])) .. '}'
-		end
-	end
-	return " "
+
+
+local function transfer_helper(capt)
+  if capt[2] == "nil" then
+		return '"\1nil",'
+	elseif capt[2] == "true" then
+		return 'true,'
+	elseif capt[2] == "false" then
+		return 'false,'
+	elseif capt[1] == 'STRING' then
+		return '"\2'.. capt[2] .. '",'
+	elseif capt[1] == 'NUMBER' then
+		return capt[2] .. ","
+	elseif capt[1] == 'COMMENT' then
+		return '--' .. capt[2] .. '\n'
+	elseif capt[1] == 'KEYWORD' then
+		return '"\5' .. capt[2] .. '",'
+	elseif capt[1] == 'IDENTIFIER' then
+    return '"\1' .. capt[2] .. '",'
+  else
+    return false
+  end
+ end
+ 
+
+local function transfer(capt, pos)
+  -- notes
+  -- transfer must repeatedly be called, once on each form in the lexed list.
+  -- if it encounters a scalar or non-group form at the top-level, it returns
+  -- a codestring for that value. BUT if it encounters a group opener, a prefix,
+  -- or any other kind of value that awaits further data, it recurses at the end
+  -- of transfer, calling transfer again but with the elements of the group as
+  -- its new "top-level."
+  local state = {}
+  pos = pos or 0
+  while pos < #capt do
+    pos = pos + 1
+    local term = capt[pos]
+    local th = transfer_helper(term)
+    if th then
+      state[#state + 1] = th
+    else
+      state.close = true
+      -- we have encountered a non-simple form
+      if term[1] == 'CHAIN' then
+        state[#state + 1] = '{"\1chain",'
+        state[#state + 1] = transfer(term, 1)        
+      elseif term[1] == 'PAREN' then
+        if term[2] == '(' then
+          state[#state + 1] = '{'
+          state[#state + 1] = transfer(term, 2)
+        else
+          state[#state + 1] = '{"\1lambda",'
+          state[#state + 1] = transfer(term, 2)
+        end
+      elseif term[1] == 'BRACKET' then
+        if term[2] == '[' then
+          state[#state + 1] = '{"\1vector",'
+          state[#state + 1] = transfer(term, 2)
+        else
+          state[#state + 1] = '{"\1tuple",'
+          state[#state + 1] = transfer(term, 2)
+        end
+      elseif term[1] == 'BRACE' then
+        if term[2] == '{' then
+          state[#state + 1] = '{"\1table-map",'
+          state[#state + 1] = transfer(term, 2)
+        else
+          state[#state + 1] = '{"\1set",'
+          state[#state + 1] = transfer(term, 2)
+        end
+      elseif term[1] == 'META' then
+          state[#state + 1] = '{"\1attach-meta",'
+          state[#state + 1] = transfer(term, 1)
+      elseif term[1] == 'PREFIX' then
+        if term[2] == "'" then
+          state[#state + 1] = '{"\1quote",'
+          state[#state + 1] = transfer(term, 2)
+        elseif term[2] == '$' then
+          state[#state + 1] = '{"\1auto-gensym",'
+          state[#state + 1] = transfer(term, 2)
+        elseif term[2] == '~' then
+          state[#state + 1] = '{"\1unquote",'
+          state[#state + 1] = transfer(term, 2)
+        elseif term[2] == '`' then
+          state[#state + 1] = '{"\1syntax-quote",'
+          state[#state + 1] = transfer(term, 2)
+        end
+      end
+    end
+  end
+  if state.close then
+    return table.concat(state) .. '},'
+  else
+    return table.concat(state)
+  end
 end
 
 function seed.transpile(llk, retain)
 	local lexed = grammar.lex(llk)
-	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.__run({"\5%(",'
-  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.__run_in({"\5%(",' end
-	local c = seed._map(transfer, lexed)
-	if #c > 0 then
-		for i,v in ipairs(c) do
-			if v:sub(-1) == '\n' then 
-				lu = lu .. v
-			else
-				lu = lu .. v .. ','
-			end
-		end
-	end
-  lu = lu .. '"\5%)"})'
+	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.__run({"\1do",'
+  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.__run_in({"\1do",' end
+	lu = lu .. transfer(lexed) .. '})'
 	return lu
 end
 
