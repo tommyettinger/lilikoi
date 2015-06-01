@@ -143,6 +143,10 @@ check("(defmacro defvariad [opname op] `(defn ~opname [& $args] (reduce ~op $arg
 check("(apply '~$math.min.foo.bar '''(1 2 3))")
 check("math.foo.bar.pi")
 check('(reduce + [1 2 3])')
+
+each(pp.print, scan(operator.add, 0, {2, 4, 6, 8}))
+each(pp.print, reductions(operator.add, {2, 4, 6, 8}))
+
 --check("(str (2 ^ 3))")
 --]]
 --check("'hello, world!'")

@@ -29,11 +29,10 @@ THE SOFTWARE.
 
 MIT/X11 License: http://www.opensource.org/licenses/mit-license.php
 --]]
-
+local pp = require'pp'
 --------------------------------------------------------------------------------
 -- Tools
 --------------------------------------------------------------------------------
-local pp = require'pp'
 local return_if_not_empty = function(state_x, ...)
     if state_x == nil then
         return nil
@@ -70,8 +69,8 @@ local nil_gen = function(_param, _state)
     return nil
 end
 
-local string_gen = function(param, state)
-    local state = state + 1
+local string_gen = function(param, st)
+    local state = st + 1
     if state > #param then
         return nil
     end
@@ -80,9 +79,8 @@ local string_gen = function(param, state)
 end
 
 local pairs_gen = pairs({ a = 0 }) -- get the generating function from pairs
-local map_gen = function(tab, key)
-    local value
-    local key, value = pairs_gen(tab, key)
+local tab_gen = function(tab, k)
+    local key, value = pairs_gen(tab, k)
     return key, key, value
 end
 
@@ -94,7 +92,7 @@ local iter = function(obj, param, state)
         if #obj > 0 then
             return ipairs(obj)
         else
-            return map_gen, obj, nil
+            return tab_gen, obj, nil
         end
     elseif (type(obj) == "string") then
         if #obj == 0 then
@@ -127,18 +125,18 @@ end
 -- Generators
 --------------------------------------------------------------------------------
 
-local range_gen = function(param, state)
+local range_gen = function(param, st)
     local stop, step = param[1], param[2]
-    local state = state + step
+    local state = st + step
     if state >= stop then
         return nil
     end
     return state, state
 end
 
-local range_rev_gen = function(param, state)
+local range_rev_gen = function(param, st)
     local stop, step = param[1], param[2]
-    local state = state + step
+    local state = st + step
     if state <= stop then
         return nil
     end
@@ -491,8 +489,7 @@ local foldl = function(fun, start, gen, param, state)
 end
 
 local reduce = function(fun, gen, param, state)
-    local gen_x, param_x, state_x = iter(gen, param, state)
-    local start
+    local gen_x, param_x, state_x, start = iter(gen, param, state)
     state_x, start = gen_x(param_x, state_x)
     while state_x ~= nil do
         state_x, start = foldl_call(fun, start, gen_x(param_x, state_x))
@@ -583,9 +580,9 @@ local max_cmp = function(m, n)
     if n > m then return n else return m end
 end
 
-local min = function(gen, param, state)
-    local gen, param, state = iter(gen, param, state)
-    local state, m = gen(param, state)
+local min = function(gen, par, st)
+    local gen, param, stt = iter(gen, par, st)
+    local state, m = gen(param, stt)
     if state == nil then
         error("min: iterator is empty")
     end
@@ -825,15 +822,46 @@ local chain = function(...)
     local i, gen_x, param_x, state_x
     for i=1,n,1 do
         local elem = select(i, ...)
-        gen_x, param_x, state_x = iter_tab(elem)
+        gen_x, param_x, state_x = elem[1], elem[2], elem[3]
         param[3 * i - 2] = gen_x
         param[3 * i - 1] = param_x
         param[3 * i] = state_x
     end
-
     return chain_gen_r1, param, {1, param[3]}
 end
 
+--------------------------------------------------------------------------------
+-- Mixes
+--------------------------------------------------------------------------------
+
+local scan_gen_call = function(fun, start, state_x, ...)
+  if state_x == nil then
+    return nil, start
+  end
+  local res = (fun(start, ...))
+  return {res, state_x}, res
+end
+
+local scan_gen = function(param, state)
+  local gen_x, param_x, fun = param[1], param[2], param[3]
+  local start, state_x = state[1], state[2]
+  return scan_gen_call(fun, start, gen_x(param_x, state_x))
+end
+
+local scan_helper = function(fun, start, gen, param, state)
+  return scan_gen, {gen, param, fun}, {start, state}
+end
+
+local scan = function(fun, start, gen, param, state)
+  local gen_x, param_x, state_x = iter(gen, param, state)
+  return chain({iter({start})}, {scan_helper(fun, start, gen_x, param_x, state_x)})
+end
+
+local reductions = function(fun, gen, param, state)
+  local gen_x, param_x, state_x, start = iter(gen, param, state)
+  state_x, start = gen_x(param_x, state_x)
+  return chain({iter({start})}, {scan_helper(fun, start, gen_x, param_x, state_x)})
+end
 --------------------------------------------------------------------------------
 -- Operators
 --------------------------------------------------------------------------------
@@ -950,8 +978,10 @@ local exports = {
     -- Reducing
     ----------------------------------------------------------------------------
     foldl = foldl,
-    -- reduce = foldl, -- an alias
+    fold = foldl, -- an alias
     reduce = reduce,
+    scan = scan,
+    reductions = reductions,
     length = length,
     is_null = is_null,
     is_prefix_of = is_prefix_of,
