@@ -126,7 +126,7 @@ local function check(llk)
 	--pp(lil.translate(llk))
 	--pp(lil.run(llk))
 end
-
+--[=[
 check("1")
 check('"abc"')
 check('"ab\ncd" 2')
@@ -143,9 +143,12 @@ check("(defmacro defvariad [opname op] `(defn ~opname [& $args] (reduce ~op $arg
 check("(apply '~$math.min.foo.bar '''(1 2 3))")
 check("math.foo.bar.pi")
 check('(reduce + [1 2 3])')
-
+--]=]
 each(pp.print, scan(operator.add, 0, {2, 4, 6, 8}))
 each(pp.print, reductions(operator.add, {2, 4, 6, 8}))
+
+uit.each(pp.print, uit.scan(operator.add, 0, uit.iter({2, 4, 6, 8})))
+uit.each(pp.print, uit.reductions(operator.add, uit.iter({2, 4, 6, 8})))
 
 --check("(str (2 ^ 3))")
 --]]

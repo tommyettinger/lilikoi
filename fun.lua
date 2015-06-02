@@ -30,6 +30,9 @@ THE SOFTWARE.
 MIT/X11 License: http://www.opensource.org/licenses/mit-license.php
 --]]
 local pp = require'pp'
+---
+-- Unified Iterator Table
+local uit = {}
 --------------------------------------------------------------------------------
 -- Tools
 --------------------------------------------------------------------------------
@@ -104,6 +107,10 @@ local iter = function(obj, param, state)
           obj, type(obj)))
 end
 
+uit.iter = function(obj, param, state)
+    return {iter(obj, param, state)}
+end
+
 local iter_tab = function(obj)
     if type(obj) == "function" or rawget(getmetatable(obj) or {}, "__call") then
        return obj, nil, nil
@@ -119,6 +126,12 @@ local each = function(fun, gen, param, state)
     repeat
         state_x = call_if_not_empty(fun, gen_x(param_x, state_x))
     until state_x == nil
+end
+
+uit.each = function(fun, trip)
+    repeat
+        trip[3] = call_if_not_empty(fun, trip[1](trip[2], trip[3]))
+    until trip[3] == nil
 end
 
 --------------------------------------------------------------------------------
@@ -164,6 +177,10 @@ local range = function(start, stop, step)
     end
 end
 
+uit.range = function(start, stop, step)
+    return {range(start, stop, step)}
+end
+
 local duplicate_table_gen = function(param_x, state_x)
     return state_x + 1, unpack(param_x)
 end
@@ -184,17 +201,33 @@ local duplicate = function(...)
     end
 end
 
+uit.duplicate = function(...)
+    return {duplicate(...)}
+end
+
 local tabulate = function(fun)
     assert(type(fun) == "function" or rawget(getmetatable(fun) or {}, "__call"))
     return duplicate_fun_gen, fun, 0
+end
+
+uit.tabulate = function(fun)
+    return {tabulate(fun)}
 end
 
 local zeros = function()
     return duplicate_gen, 0, 0
 end
 
+uit.zeros = function()
+  return {duplicate_gen, 0, 0}
+end
+
 local ones = function()
     return duplicate_gen, 1, 0
+end
+
+uit.ones = function()
+  return {duplicate_gen, 1, 0}
 end
 
 local rands_gen = function(param_x, _state_x)
@@ -218,6 +251,10 @@ local rands = function(n, m)
     end
     assert(n < m, "empty interval")
     return rands_gen, {n, m - 1}, 0
+end
+
+uit.rands = function(n, m)
+  return {rands(n, m)}
 end
 
 --------------------------------------------------------------------------------
@@ -246,6 +283,27 @@ local nth = function(n, gen, param, state)
     return return_if_not_empty(gen_x(param_x, state_x))
 end
 
+uit.nth = function(n, trip)
+    assert(n > 0, "invalid first argument to nth")
+    -- An optimization for arrays and strings
+    if trip[1] == ipairs then
+        return trip[2][n]
+    elseif trip[1] == string_gen then
+        if n < #trip[2] then
+            return string.sub(trip[2], n, n)
+        else
+            return nil
+        end
+    end
+    for i=1,n-1,1 do
+        trip[3] = trip[1](trip[2], trip[3])
+        if trip[3] == nil then
+            return nil
+        end
+    end
+    return return_if_not_empty(trip[1](trip[2], trip[3]))
+end
+
 local head_call = function(state, ...)
     if state == nil then
         error("head: iterator is empty")
@@ -258,6 +316,10 @@ local head = function(gen, param, state)
     return head_call(gen_x(param_x, state_x))
 end
 
+uit.head = function(trip)
+    return head_call(trip[1](trip[2], trip[3]))
+end
+
 local tail = function(gen, param, state)
     local gen_x, param_x, state_x = iter(gen, param, state)
     state_x = gen_x(param_x, state_x)
@@ -266,6 +328,15 @@ local tail = function(gen, param, state)
     end
     return gen_x, param_x, state_x
 end
+
+uit.tail = function(trip)
+    trip[3] = trip[1](trip[2], trip[3])
+    if trip[3] == nil then
+        return nil_gen, nil, nil
+    end
+    return trip
+end
+
 
 local take_n_gen_x = function(i, state_x, ...)
     if state_x == nil then
@@ -289,6 +360,12 @@ local take_n = function(n, gen, param, state)
     return take_n_gen, {n, gen, param}, {0, state}
 end
 
+uit.take_n = function(n, trip)
+    assert(n >= 0, "invalid first argument to take_n")
+    return {take_n_gen, {n, trip[1], trip[2]}, {0, trip[3]}}
+end
+
+
 local take_while_gen_x = function(fun, state_x, ...)
     if state_x == nil or not fun(...) then
         return nil
@@ -307,11 +384,24 @@ local take_while = function(fun, gen, param, state)
     return take_while_gen, {fun, gen, param}, state
 end
 
+uit.take_while = function(fun, trip)
+    assert(type(fun) == "function" or rawget(getmetatable(fun) or {}, "__call"), "invalid first argument to take_while")
+    return {take_while_gen, {fun, trip[1], trip[2]}, trip[3]}
+end
+
 local take = function(n_or_fun, gen, param, state)
     if type(n_or_fun) == "number" then
         return take_n(n_or_fun, gen, param, state)
     else 
         return take_while(n_or_fun, gen, param, state)
+    end
+end
+
+uit.take = function(n_or_fun, trip)
+    if type(n_or_fun) == "number" then
+        return uit.take_n(n_or_fun, trip)
+    else 
+        return uit.take_while(n_or_fun, trip)
     end
 end
 
@@ -325,6 +415,17 @@ local drop_n = function(n, gen, param, state)
         end
     end
     return gen_x, param_x, state_x
+end
+
+uit.drop_n = function(n, trip)
+    assert(n >= 0, "invalid first argument to drop_n")
+    for i=1,n,1 do
+        trip[3] = trip[1](trip[2], trip[3])
+        if trip[3] == nil then
+            return nil_gen, nil, nil
+        end
+    end
+    return trip
 end
 
 local drop_while_x = function(fun, state_x, ...)
@@ -348,6 +449,19 @@ local drop_while = function(fun, gen, param, state)
     return gen_x, param_x, state_x_prev
 end
 
+uit.drop_while = function(fun, trip)
+    assert(type(fun) == "function" or rawget(getmetatable(fun) or {}, "__call"), "invalid first argument to drop_while")
+    local cont, state_x_prev
+    repeat
+        state_x_prev = deepcopy(trip[3])
+        trip[3], cont = drop_while_x(fun, trip[1](trip[2], trip[3]))
+    until not cont
+    if trip[3] == nil then
+        return nil_gen, nil, nil
+    end
+    return {trip[1], trip[2], state_x_prev}
+end
+
 local drop = function(n_or_fun, gen, param, state)
     if type(n_or_fun) == "number" then
         return drop_n(n_or_fun, gen, param, state)
@@ -356,9 +470,22 @@ local drop = function(n_or_fun, gen, param, state)
     end
 end
 
+uit.drop = function(n_or_fun, trip)
+    if type(n_or_fun) == "number" then
+        return uit.drop_n(n_or_fun, trip)
+    else 
+        return uit.drop_while(n_or_fun, trip)
+    end
+end
+
 local split = function(n_or_fun, gen, param, state)
     return {take(n_or_fun, gen, param, state)},
            {drop(n_or_fun, gen, param, state)}
+end
+
+uit.split = function(n_or_fun, trip)
+    return {uit.take(n_or_fun, trip),
+            uit.drop(n_or_fun, trip)}
 end
 
 --------------------------------------------------------------------------------
@@ -368,6 +495,17 @@ end
 local index = function(x, gen, param, state) 
     local i = 1
     for _k, r in iter(gen, param, state) do
+        if r == x then
+            return i
+        end
+        i = i + 1
+    end
+    return nil
+end
+
+uit.index = function(x, trip) 
+    local i = 1
+    for _k, r in trip[1], trip[2], trip[3] do
         if r == x then
             return i
         end
@@ -397,10 +535,19 @@ local indexes = function(x, gen, param, state)
     return indexes_gen, {x, gen_x, param_x}, {0, state_x}
 end
 
+uit.indexes = function(x, trip)
+    return {indexes_gen, {x, trip[1], trip[2]}, {0, trip[3]}}
+end
+
 -- TODO: undocumented
 local find = function(fun, gen, param, state)
     local gen_x, param_x, state_x = filter(fun, gen, param, state)
     return return_if_not_empty(gen_x(param_x, state_x))
+end
+
+uit.find = function(fun, trip)
+    local trip_x = uit.filter(fun, trip)
+    return return_if_not_empty(trip_x[1](trip_x[2], trip_x[3]))
 end
 
 --------------------------------------------------------------------------------
@@ -449,12 +596,24 @@ local filter = function(fun, gen, param, state)
     return filter_gen, {fun, gen_x, param_x}, state_x
 end
 
+uit.filter = function(fun, trip)
+    return {filter_gen, {fun, trip[1], trip[2]}, trip[3]}
+end
+
 local grep = function(fun_or_regexp, gen, param, state)
     local fun = fun_or_regexp
     if type(fun_or_regexp) == "string" then
         fun = function(x) return string.find(x, fun_or_regexp) ~= nil end
     end
     return filter(fun, gen, param, state)
+end
+
+uit.grep = function(fun_or_regexp, trip)
+    local fun = fun_or_regexp
+    if type(fun_or_regexp) == "string" then
+        fun = function(x) return string.find(x, fun_or_regexp) ~= nil end
+    end
+    return uit.filter(fun, trip)
 end
 
 local partition = function(fun, gen, param, state)
@@ -464,6 +623,14 @@ local partition = function(fun, gen, param, state)
     local gen_x, param_x, state_x = iter(gen, param, state)
     return {filter(fun, gen_x, param_x, state_x)},
            {filter(neg_fun, gen_x, param_x, state_x)}
+end
+
+uit.partition = function(fun, trip)
+    local neg_fun = function(...)
+        return not fun(...)
+    end
+    return {uit.filter(fun, trip),
+            uit.filter(neg_fun, trip)}
 end
 
 --------------------------------------------------------------------------------
@@ -488,6 +655,16 @@ local foldl = function(fun, start, gen, param, state)
     return start
 end
 
+uit.foldl = function(fun, start, trip)
+    while true do
+        trip[3], start = foldl_call(fun, start, trip[1](trip[2], trip[3]))
+        if trip[3] == nil then
+            break;
+        end
+    end
+    return start
+end
+
 local reduce = function(fun, gen, param, state)
     local gen_x, param_x, state_x, start = iter(gen, param, state)
     state_x, start = gen_x(param_x, state_x)
@@ -497,16 +674,37 @@ local reduce = function(fun, gen, param, state)
     return start
 end
 
+uit.reduce = function(fun, trip)
+    local start
+    trip[3], start = trip[1](trip[2], trip[3])
+    while trip[3] ~= nil do
+        trip[3], start = foldl_call(fun, start, trip[1](trip[2], trip[3]))
+    end
+    return start
+end
+
 local length = function(gen, param, state)
-    local gen, param, state = iter(gen, param, state)
-    if gen == ipairs or gen == string_gen then
-        return #param
+    local gen_x, param_x, state_x = iter(gen, param, state)
+    if gen_x == ipairs or gen_x == string_gen then
+        return #param_x
     end
     local len = 0
     repeat
-        state = gen(param, state)
+        state_x = gen_x(param_x, state_x)
         len = len + 1
-    until state == nil
+    until state_x == nil
+    return len - 1
+end
+
+uit.length = function(trip)
+    if trip[1] == ipairs or trip[1] == string_gen then
+        return #trip[2]
+    end
+    local len = 0
+    repeat
+        trip[3] = trip[1](trip[2], trip[3])
+        len = len + 1
+    until trip[3] == nil
     return len - 1
 end
 
@@ -515,18 +713,36 @@ local is_null = function(gen, param, state)
     return gen_x(param_x, deepcopy(state_x)) == nil
 end
 
+uit.is_null = function(trip)
+    return trip[1](trip[2], deepcopy(trip[3])) == nil
+end
+
 local is_prefix_of = function(iter_x, iter_y)
     local gen_x, param_x, state_x = iter_tab(iter_x)
     local gen_y, param_y, state_y = iter_tab(iter_y)
 
     local r_x, r_y
-    for i=1,10,1 do
+    while true do
         state_x, r_x = gen_x(param_x, state_x)
         state_y, r_y = gen_y(param_y, state_y)
         if state_x == nil then
             return true
         end
         if state_y == nil or r_x ~= r_y then
+            return false
+        end
+    end
+end
+
+uit.is_prefix_of = function(trip_x, trip_y)
+    local r_x, r_y
+    while true do
+        trip_x[3], r_x = trip_x[1](trip_x[2], trip_x[3])
+        trip_y[3], r_y = trip_y[1](trip_y[2], trip_y[3])
+        if trip_x[3] == nil then
+            return true
+        end
+        if trip_y[3] == nil or r_x ~= r_y then
             return false
         end
     end
@@ -541,6 +757,14 @@ local all = function(fun, gen, param, state)
     return state_x == nil
 end
 
+uit.all = function(fun, trip)
+    local r
+    repeat
+        trip[3], r = call_if_not_empty(fun, trip[1](trip[2], trip[3]))
+    until trip[3] == nil or not r
+    return trip[3] == nil
+end
+
 local any = function(fun, gen, param, state)
     local gen_x, param_x, state_x = iter(gen, param, state)
     local r
@@ -550,25 +774,53 @@ local any = function(fun, gen, param, state)
     return not not r
 end
 
+uit.any = function(fun, trip)
+    local r
+    repeat
+        trip[3], r = call_if_not_empty(fun, trip[1](trip[2], trip[3]))
+    until trip[3] == nil or r
+    return not not r
+end
+
 local sum = function(gen, param, state)
-    local gen, param, state = iter(gen, param, state)
+    local gen_x, param_x, state_x = iter(gen, param, state)
     local s = 0
     local r = 0
     repeat
         s = s + r
-        state, r = gen(param, state)
-    until state == nil
+        state_x, r = gen_x(param_x, state_x)
+    until state_x == nil
+    return s
+end
+
+uit.sum = function(trip)
+    local s = 0
+    local r = 0
+    repeat
+        s = s + r
+        trip[3], r = trip[1](trip[2], trip[3])
+    until trip[3] == nil
     return s
 end
 
 local product = function(gen, param, state)
-    local gen, param, state = iter(gen, param, state)
+    local gen_x, param_x, state_x = iter(gen, param, state)
     local p = 1
     local r = 1
     repeat
         p = p * r
-        state, r = gen(param, state)
-    until state == nil
+        state_x, r = gen_x(param_x, state_x)
+    until state_x == nil
+    return p
+end
+
+uit.product = function(trip)
+    local p = 1
+    local r = 1
+    repeat
+        p = p * r
+        trip[3], r = trip[1](trip[2], trip[3])
+    until trip[3] == nil
     return p
 end
 
@@ -580,10 +832,10 @@ local max_cmp = function(m, n)
     if n > m then return n else return m end
 end
 
-local min = function(gen, par, st)
-    local gen, param, stt = iter(gen, par, st)
-    local state, m = gen(param, stt)
-    if state == nil then
+local min = function(gen, param, state)
+    local gen_x, param_x, state_x, m = iter(gen, param, state)
+    state_x, m = gen_x(param_x, state_x)
+    if state_x == nil then
         error("min: iterator is empty")
     end
 
@@ -595,15 +847,35 @@ local min = function(gen, par, st)
         cmp = min_cmp
     end
 
-    for _, r in gen, param, state do
+    for _, r in gen_x, param_x, state_x do
+        m = cmp(m, r)
+    end
+    return m
+end
+
+uit.min = function(trip)
+    trip[3], m = trip[1](trip[2], trip[3])
+    if trip[3] == nil then
+        error("min: iterator is empty")
+    end
+
+    local cmp
+    if type(m) == "number" then
+        -- An optimization: use math.min for numbers
+        cmp = math.min
+    else
+        cmp = min_cmp
+    end
+
+    for _, r in trip[1], trip[2], trip[3] do
         m = cmp(m, r)
     end
     return m
 end
 
 local min_by = function(cmp, gen, param, state)
-    local gen_x, param_x, state_x = iter(gen, param, state)
-    local state_x, m = gen_x(param_x, state_x)
+    local gen_x, param_x, state_x, m = iter(gen, param, state)
+    state_x, m = gen_x(param_x, state_x)
     if state_x == nil then
         error("min: iterator is empty")
     end
@@ -614,9 +886,22 @@ local min_by = function(cmp, gen, param, state)
     return m
 end
 
+uit.min_by = function(cmp, trip)
+    local m
+    trip[3], m = trip[1](trip[2], trip[3])
+    if trip[3] == nil then
+        error("min: iterator is empty")
+    end
+
+    for _, r in trip[1], trip[2], trip[3] do
+        m = cmp(m, r)
+    end
+    return m
+end
+
 local max = function(gen, param, state)
-    local gen_x, param_x, state_x = iter(gen, param, state)
-    local state_x, m = gen_x(param_x, state_x)
+    local gen_x, param_x, state_x, m = iter(gen, param, state)
+    state_x, m = gen_x(param_x, state_x)
     if state_x == nil then
         error("max: iterator is empty")
     end
@@ -635,14 +920,48 @@ local max = function(gen, param, state)
     return m
 end
 
+uit.max = function(trip)
+    local m
+    trip[3], m = trip[1](trip[2], trip[3])
+    if trip[3] == nil then
+        error("max: iterator is empty")
+    end
+
+    local cmp
+    if type(m) == "number" then
+        -- An optimization: use math.max for numbers
+        cmp = math.max
+    else
+        cmp = max_cmp
+    end
+
+    for _, r in trip[1], trip[2], trip[3] do
+        m = cmp(m, r)
+    end
+    return m
+end
+
 local max_by = function(cmp, gen, param, state)
-    local gen_x, param_x, state_x = iter(gen, param, state)
-    local state_x, m = gen_x(param_x, state_x)
+    local gen_x, param_x, state_x, m = iter(gen, param, state)
+    state_x, m = gen_x(param_x, state_x)
     if state_x == nil then
         error("max: iterator is empty")
     end
 
     for _, r in gen_x, param_x, state_x do
+        m = cmp(m, r)
+    end
+    return m
+end
+
+uit.max_by = function(cmp, trip)
+    local m
+    trip[3], m = trip[1](trip[2], trip[3])
+    if trip[3] == nil then
+        error("max: iterator is empty")
+    end
+
+    for _, r in trip[1], trip[2], trip[3] do
         m = cmp(m, r)
     end
     return m
@@ -661,11 +980,35 @@ local totable = function(gen, param, state)
     return tab
 end
 
+uit.totable = function(trip)
+    local tab, key, val = {}
+    while true do
+        trip[3], val = trip[1](trip[2], trip[3])
+        if trip[3] == nil then
+            break
+        end
+        table.insert(tab, val)
+    end
+    return tab
+end
+
 local tomap = function(gen, param, state)
     local gen_x, param_x, state_x = iter(gen, param, state)
     local tab, key, val = {}
     while true do
         state_x, key, val = gen_x(param_x, state_x)
+        if state_x == nil then
+            break
+        end
+        tab[key] = val
+    end
+    return tab
+end
+
+uit.tomap = function(trip)
+    local tab, key, val = {}
+    while true do
+        trip[3], key, val = trip[1](trip[2], trip[3])
         if state_x == nil then
             break
         end
@@ -688,6 +1031,10 @@ local map = function(fun, gen, param, state)
     return map_gen, {gen_x, param_x, fun}, state_x
 end
 
+uit.map = function(fun, trip)
+    return {map_gen, {trip[1], trip[2], fun}, trip[3]}
+end
+
 local enumerate_gen_call = function(state, i, state_x, ...)
     if state_x == nil then
         return nil
@@ -706,6 +1053,10 @@ local enumerate = function(gen, param, state)
     return enumerate_gen, {gen_x, param_x}, {0, state_x}
 end
 
+uit.enumerate = function(trip)
+    return {enumerate_gen, {trip[1], trip[2]}, {0, trip[3]}}
+end
+
 local intersperse_call = function(i, state_x, ...)
     if state_x == nil then
         return nil
@@ -716,17 +1067,20 @@ end
 local intersperse_gen = function(param, state)
     local x, gen_x, param_x = param[1], param[2], param[3]
     local i, state_x = state[1], state[2]
-    if i % 2 == 1 then
+    if i % 2 == 0 then
         return {i + 1, state_x}, x
     else
         return intersperse_call(i, gen_x(param_x, state_x))
     end
 end
 
--- TODO: interperse must not add x to the tail
 local intersperse = function(x, gen, param, state)
     local gen_x, param_x, state_x = iter(gen, param, state)
-    return intersperse_gen, {x, gen_x, param_x}, {0, state_x}
+    return tail(intersperse_gen, {x, gen_x, param_x}, {0, state_x})
+end
+
+uit.intersperse = function(x, trip)
+    return {tail(intersperse_gen, {x, trip[1], trip[2]}, {0, trip[3]})}
 end
 
 --------------------------------------------------------------------------------
@@ -773,6 +1127,25 @@ local zip = function(...)
     return zip_gen, param, state
 end
 
+uit.zip = function(...)
+    local n = select('#', ...)
+    if n == 0 then
+        return nil_gen, nil, nil
+    end
+    local param = { [2 * n] = 0 }
+    local state = { [n] = 0 }
+
+    local i
+    for i=1,n,1 do
+        local elem = select(n - i + 1, ...)
+        param[2 * i - 1] = elem[1]
+        param[2 * i] = elem[2]
+        state[i] = elem[3]
+    end
+
+    return {zip_gen, param, state}
+end
+
 local cycle_gen_call = function(param, state_x, ...)
     if state_x == nil then
         local gen_x, param_x, state_x0 = param[1], param[2], param[3]
@@ -789,6 +1162,10 @@ end
 local cycle = function(gen, param, state)
     local gen_x, param_x, state_x = iter(gen, param, state)
     return cycle_gen, {gen_x, param_x, state_x}, deepcopy(state_x)
+end
+
+uit.cycle = function(trip)
+    return {cycle_gen, trip, deepcopy(trip[3])}
 end
 
 -- call each other
@@ -819,15 +1196,31 @@ local chain = function(...)
     end
 
     local param = { [3 * n] = 0 }
-    local i, gen_x, param_x, state_x
+    local i
     for i=1,n,1 do
         local elem = select(i, ...)
-        gen_x, param_x, state_x = elem[1], elem[2], elem[3]
-        param[3 * i - 2] = gen_x
-        param[3 * i - 1] = param_x
-        param[3 * i] = state_x
+        param[3 * i - 2] = elem[1]
+        param[3 * i - 1] = elem[2]
+        param[3 * i] = elem[3]
     end
     return chain_gen_r1, param, {1, param[3]}
+end
+
+uit.chain = function(...)
+    local n = select('#', ...)
+    if n == 0 then
+        return nil_gen, nil, nil
+    end
+
+    local param = { [3 * n] = 0 }
+    local i
+    for i=1,n,1 do
+        local elem = select(i, ...)
+        param[3 * i - 2] = elem[1]
+        param[3 * i - 1] = elem[2]
+        param[3 * i] = elem[3]
+    end
+    return {chain_gen_r1, param, {1, param[3]}}
 end
 
 --------------------------------------------------------------------------------
@@ -857,10 +1250,20 @@ local scan = function(fun, start, gen, param, state)
   return chain({iter({start})}, {scan_helper(fun, start, gen_x, param_x, state_x)})
 end
 
+uit.scan = function(fun, start, trip)
+  return {chain({iter({start})}, {scan_helper(fun, start, trip[1], trip[2], trip[3])})}
+end
+
 local reductions = function(fun, gen, param, state)
   local gen_x, param_x, state_x, start = iter(gen, param, state)
   state_x, start = gen_x(param_x, state_x)
   return chain({iter({start})}, {scan_helper(fun, start, gen_x, param_x, state_x)})
+end
+
+uit.reductions = function(fun, trip)
+  local start
+  trip[3], start = trip[1](trip[2], trip[3])
+  return {chain({iter({start})}, {scan_helper(fun, start, trip[1], trip[2], trip[3])})}
 end
 --------------------------------------------------------------------------------
 -- Operators
@@ -1020,7 +1423,13 @@ local exports = {
     -- Operators
     ----------------------------------------------------------------------------
     operator = operator,
-    op = operator -- an alias
+    op = operator, -- an alias
+    
+    ----------------------------------------------------------------------------
+    -- Unified Iterator Tables
+    ----------------------------------------------------------------------------
+    uit = uit,
+    packed_iter = uit -- an alias
 }
 
 -- a special syntax sugar to export all functions to the global table

@@ -4,7 +4,6 @@
 
 local seed = require'lilikoi.seed'
 local grammar = require'lilikoi.grammar'
-local glue = require'glue'
 local fun = require 'fun' ()
 
 
@@ -30,15 +29,9 @@ local function transfer_helper(capt)
   end
  end
  
-
+---
+-- transfers all the elements in a lexed/parsed AST to a code string
 local function transfer(capt, pos)
-  -- notes
-  -- transfer must repeatedly be called, once on each form in the lexed list.
-  -- if it encounters a scalar or non-group form at the top-level, it returns
-  -- a codestring for that value. BUT if it encounters a group opener, a prefix,
-  -- or any other kind of value that awaits further data, it recurses at the end
-  -- of transfer, calling transfer again but with the elements of the group as
-  -- its new "top-level."
   local state = {}
   pos = pos or 0
   while pos < #capt do
@@ -71,7 +64,7 @@ local function transfer(capt, pos)
         end
       elseif term[1] == 'BRACE' then
         if term[2] == '{' then
-          state[#state + 1] = '{"\1table-map",'
+          state[#state + 1] = '{"\1dict",'
           state[#state + 1] = transfer(term, 2)
         else
           state[#state + 1] = '{"\1set",'
