@@ -4,8 +4,6 @@
 
 local seed = require'lilikoi.seed'
 local grammar = require'lilikoi.grammar'
-local fun = require 'fun' ()
-
 
 local function transfer_helper(capt)
   if capt[2] == "nil" then
@@ -15,7 +13,7 @@ local function transfer_helper(capt)
 	elseif capt[2] == "false" then
 		return 'false,'
 	elseif capt[1] == 'STRING' then
-		return '"\2'.. capt[2] .. '",'
+		return '"\2'.. string.gsub(capt[2], "([\n\"\'])", "\\%1") .. '",'
 	elseif capt[1] == 'NUMBER' then
 		return capt[2] .. ","
 	elseif capt[1] == 'COMMENT' then
@@ -99,8 +97,8 @@ end
 
 function seed.transpile(llk, retain)
 	local lexed = grammar.lex(llk)
-	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.__run({"\1do",'
-  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.__run_in({"\1do",' end
+	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run({"\1do",'
+  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run_in({"\1do",' end
 	lu = lu .. transfer(lexed) .. '})'
 	return lu
 end

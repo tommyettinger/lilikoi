@@ -2,6 +2,17 @@
 -- lilikoi/seed: the core lib used by lilikoi code after translation.
 -- Written by Tommy Ettinger. Public Domain.
 
+-- notes:
+-- the entry point of a program is always a single form, a 'do' macro that then
+-- evaluates the given forms of the program in order. the 'do' is inserted
+-- automatically.
+-- a 'function' is a lua function. these are black boxes.
+-- an 'sexp' is a table-as-list where the first element is a function or fn called on
+--    the rest of the elements in the list. any inner sexps are evaluated first.
+-- an 'fn' is a table with at least one numerical arity given as a key, with either
+--    a function or sexp as its value. it may also have other keys that are not numbers,
+--    containing information such as whether or not the fn is a macro.
+
 local seed = {}
 
 local glue = require'glue'
@@ -22,140 +33,131 @@ glue.cpath(glue.bin .. "/bin/mingw32")
 glue.cpath(glue.bin .. "/bin/mingw32/clib")
 
 local pp = require'pp'
-seed.__inlists = {}
-seed.__outlists = {}
-
+local fun = require'fun'
 seed.__scopes = {{}, {}}
 seed.__namespace = nil
 
-local function _directcall(fun, ...)
-  if(select('#') > 0) then
-    return rawget(fun, "\6op")(...)
+local function directcall(fun, ...)
+  local arglen = select('#', ...)
+  local f = rawget(fun, arglen) or rawget(fun, -1)
+  assert(f, "Function does not have a matching argument list for arguments:\n" .. pp.format({...}))
+  if(arglen > 0) then
+    return f(...)
   else
-    return rawget(fun, "\6op")()
+    return f()
   end
 end
+seed._directcall = directcall
+local directmeta = {__call = directcall}
+seed._directmeta = directmeta
 
-local function _givencall(fun, ...)
-  local filled, supplied, target = #rawget(fun, "\6g"), select('#', ...), rawget(rawget(fun, "\6f"), "\6arity")
-  if filled + supplied < target then
-    local g = {}
-    local nu = seed._partial(
-      rawget(fun, "\6f"),
-      g,
-      false)
-    if filled > 0 then  
-      for i=1,#rawget(fun, "\6g") do
-        rawset(g, #g+1, rawget(rawget(fun, "\6g"), i))
-      end
-      rawset(nu, "\6q", true)
-    end
-    if supplied > 0 then
-      for i=1,select('#',...) do
-        rawset(g, #g+1, (select(i,...)))
-      end
-      rawset(nu, "\6q", true)
-    end
-    return nu
-  elseif filled == 0 then return rawget(rawget(fun, "\6f"), "\6op")(...)
-  else return rawget(rawget(fun, "\6f"), "\6op")(unpack(rawget(fun, "\6g")), ...)
-  end
-end
-local _directmeta = {__call = _directcall}
-local _givenmeta = {__call = _givencall}
-function seed._functor(op, arity, name, group, macro)
-	return setmetatable({
-		["\6op"] = op,
-		["\6arity"] = arity,
-		["\6name"] = name,
-		["\6group"] = group,
-		["\6macro"] = macro
-	}, _directmeta)
+local function make_fn(ops, name, macro)
+  ops.name = name
+  ops.macro = macro
+	return setmetatable(ops, directmeta)
 end
 
-function seed._partial(fun, given, quote)
-	return setmetatable({
-		["\6f"] = fun,
-		["\6g"] = given or {},
-		["\6q"] = quote
-	}, _givenmeta)
+seed.make_fn = make_fn
+
+local function defunction(fun, name)
+  if type(fun) ~= 'function' then return fun end
+  return make_fn({[-1]=fun}, name or "anonymous")
 end
 
-local function lookup_helper(name, pact, tgt)
-	local ret = tgt[pact[2]]
-	if #pact > 2 then
-		for i,a in ipairs(pact) do
-			if i > 2 then
-				if ret[a] == nil then return nil, nil end
-				if type(ret[a]) == 'function' then
-					ret = seed._functor(ret[a], -1, name)
-					seed.__scopes[1][name] = ret
-					return ret, name
-				else
-					ret = ret[a]
-				end
-			end
-		end
-	end
-	return ret, name
+local function get_item(tab, key)
+  assert(type(tab) == 'table', "Attempt to lookup a key:\n" .. pp.format(key) .. "\n  in non-table value:\n" .. pp.format(tab))
+  return rawget(tab, key)
 end
-function seed._lookup(name)
-  local pact = {name}
-	for s in glue.gsplit(name, ".", 1, true) do
-		pact[#pact + 1] = s
-	end
-	local revi = #seed.__scopes
-	while revi > 0 do
+
+seed.get = get_item
+
+local function kw_get(kw, tab)
+  local k = string.sub(kw, 2)
+  assert(type(tab) == 'table', "Attempt to lookup keyword:\n" .. pp.format(k) .. "\n  in non-table value:\n" .. pp.format(tab))
+  return rawget(tab, k)
+end
+
+seed["kw-get"] = kw_get
+
+local function lookup(name)
+	for revi=#seed.__scopes, 1, -1 do
 		if seed.__scopes[revi][name] ~= nil then
 			return seed.__scopes[revi][name], name
 		end
-		revi = revi - 1
 	end
-	local lookups
+  
 	if seed.__namespace then
-		lookups = {seed.__namespace, seed}
-	else
-		lookups = {seed}
-	end
-	local res, nm
-	for t,ns in ipairs(lookups) do
-		res, nm = lookup_helper(name, pact, ns)
-		if res then
-			return res, nm
-		end
-	end
+		if seed.__namespace[name] ~= nil then
+      return seed.__namespace[name]
+    end
+  end 
+  
+  if seed[name] ~= nil then
+    return seed[name]
+  end
 	return nil, name
 end
 
-function seed._is_identifier(name)
-  if type(name) == 'string' and #name > 2 then
-    return string.sub(name, 1, 2) == "\5%"
+seed.lookup = lookup
+
+local function is_identifier(name)
+  if type(name) == 'string' and #name > 1 then
+    return string.sub(name, 1, 1) == "\1"
   end
   return false
 end
 
-function seed._is_quoted(name)
-  if type(name) == 'string' and #name > 2 then
-    return string.sub(name, 1, 2) == "\6,"
+local function is_quoted(name)
+  if type(name) == 'string' and #name > 1 then
+    return string.sub(name, 1, 1) == "\6"
   end
   return false
 end
 
-function seed._is_keyword(name)
-  if type(name) == 'string' and #name > 2 then
-    return string.sub(name, 1, 2) == "\5:"
+local function is_keyword(name)
+  if type(name) == 'string' and #name > 1 then
+    return string.sub(name, 1, 1) == "\5"
   end
   return false
 end
 
-
-function seed._identify(name)
-  if seed._is_identifier(name) then
-    local nm = string.sub(name, 3)
-    return seed._lookup(nm)
+local function is_string(name)
+  if type(name) == 'string' and #name > 0 then
+    return string.sub(name, 1, 1) == "\2"
   end
-  return nil, nil
+  return false
 end
+
+seed["identifier?"] = is_identifier
+seed["quoted?"] = is_quoted
+seed["keyword?"] = is_keyword
+seed["string?"] = is_string
+
+local function cleanup(name)
+  if type(name) == 'string' and string.match(name, "^[\1\2\5\6]") then
+    return string.sub(name, 2)
+  end
+  return name
+end
+
+local function identify(name)
+  if is_identifier(name) then
+    local nm = string.sub(name, 2)
+    return lookup(nm)
+  end
+  return nil, cleanup(name)
+end
+
+local function quote_id(name)
+  if is_identifier(name) then
+    return "\6" .. string.sub(name, 2)
+  end
+  return name
+end
+
+seed.cleanup = cleanup
+seed.identify = identify
+seed["quote-id"] = quote_id
 
 local nests = {}
 local nestlevel = 0
@@ -230,392 +232,137 @@ function seed.__step(fun, arg, terminal)
 	end
 	return partial
 end
--- reads a sequence of generated function tables and data from
--- the specified inlist, which should already have a program,
--- and steps through it until it has read a single form, which
--- is usually a group but can be any result of a functiom,
--- then returns the final outlist produced by that form.
-function seed.__eval()
-	local outlist = seed.__outlists[#seed.__outlists] or {}
-  local inlist = seed.__inlists[#seed.__inlists] or {}
-  local halt = nil
---	while #seed.__inlists[#seed.__inlists] > 0 and not halt do
-		-- consume any tokens that were used
-		local a = table.remove(seed.__inlists[#seed.__inlists])
-		local ided, nm = seed._identify(a)
-    halt = ided == '\5%stop'
-		local terminal = #(seed.__inlists[#seed.__inlists]) == 0 -- or halt
-		if type(a) == 'function' then
-			a = seed._functor(a, -1, "__NATIVE")
-		end
-		if type(a) == 'table' and (a["\6group"] or (a["\6f"] and a["\6f"]["\6group"])) then
-			ided, nm = a, a["\6name"]
-		end
-		if type(outlist[#outlist]) == 'table' and (outlist[#outlist]["\6macro"]
-         or (outlist[#outlist]["\6f"] and outlist[#outlist]["\6f"]["\6macro"])) then
-			-- if we are running through a macro, only use names, not values.
-			local r, g, q
-			if nm then
-				q = '\6,' .. nm
-        if type(ided) == 'table' and (ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"])) then
-          nests[#nests + 1] = ided["\6group"] or ided["\6f"]["\6group"]
-        end
-        if nm == nests[#nests] then
-          -- we have reached the end of a level of nesting
-          table.remove(nests)
-          if #nests < nestlevel then
-            -- we have ended the macro
-            
-            r = seed.__step(table.remove(outlist), nil, true) -- NOTE using nm, not ided
-            for i= #r, 1, -1 do
-              table.insert(seed.__inlists[#seed.__inlists], r[i])
-            end
-            return r
-          end
-        end
-			else
-				q = a
-			end
-			r = seed.__step(outlist[#outlist], q, terminal) -- NOTE using nm, not ided    
-      outlist[#outlist] = r
-      return r
-		else
-			-- we are not running through a macro
-			if ided and not (type(ided) == 'table' and (ided["\6op"] or ided["\6f"])) then
-				-- we have looked up a value and it is not a functor or partial
-				a = ided
-			elseif type(a) == 'table' and a["\6name"] and not a["\6q"] then
-				ided, nm = a, a["\6name"]
-			end  
-      if type(outlist[#outlist]) == 'table' and ((outlist[#outlist]["\6op"] and
-					outlist[#outlist]["\6group"]) or (outlist[#outlist]["\6f"] and
-					outlist[#outlist]["\6f"]["\6op"] and outlist[#outlist]["\6f"]["\6group"])) then
-				-- if we are continuing a function that is on the outlist, and that
-				-- function is a grouper, repeatedly eval until the group has closed.
-        local r, top
---        table.insert(seed.__inlists[#seed.__inlists], a)
-        repeat
-          r = seed.__eval()
-          top = r[#r]
-          if '\5%' == top then
-            table.remove(r)
-          end
-          if not r["\5"] then
-            -- if the eval produced a function call result, then the return of
-            -- that call has been pushed to inlist, and should be read in by
-            -- the next function call (so "1 + 2 * 4" puts 3 on the inlist then
-            -- multiplies it by 4, the puts 12 on the inlist). if the latest
-            -- eval has only read data from the inlist, and no function call
-            -- results, then we want to put that data into the group.
-            outlist[#outlist] = seed.__step(outlist[#outlist], r, terminal)
-          end
-        until ('\5%' == top or #seed.__inlists[#seed.__inlists] == 0)
-        table.remove(nests)
-        nestlevel = #nests
-        local otemp = table.remove(outlist)
-        glue.extend(outlist, seed.__step(otemp, nil, true))
-        local o = {["\5"] = true}
-        for i=1, #outlist do
-          local v = outlist[i]
-          if type(v) == 'table' and v["\6op"] then
-            local tv = seed._partial(v, {}, true)
-            table.insert(o, tv)
---            table.insert(seed.__inlists[#seed.__inlists], tv)
-          elseif type(v) == 'table' and v["\6f"] then
-            v["\6q"] = true
-            table.insert(o, v)
---            table.insert(seed.__inlists[#seed.__inlists], v)
-          else
-            table.insert(o, v)
---            table.insert(seed.__inlists[#seed.__inlists], v)
-          end
-				end
-        -- we have read one form, return it as a list of all results
-				return o
-        --[[
-        if type(ided) == 'table' and (ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"])) then
-					r = seed.__step(outlist[#outlist], ided, terminal)
-				else
-					-- NOTE using a, not ided
-					r = seed.__step(outlist[#outlist], a, terminal)
-				end
-        
-        r = glue.reverse(outlist[#outlist])
-        for i,v in ipairs(r) do
-          if type(v) == 'table' and v["\6op"] then
-            table.insert(seed.__inlists[#seed.__inlists], seed._partial(v, {}, true))
-          elseif type(v) == 'table' and v["\6f"] then
-            v["\6q"] = true
-            table.insert(seed.__inlists[#seed.__inlists], v)
-          else
-            table.insert(seed.__inlists[#seed.__inlists], v)
-          end
-				end
-        table.remove(outlist)
-        --]]
-      elseif type(ided) == 'table' and (ided["\6op"] or
-				ided["\6f"]) and not ided["\6q"] then
-				
-        if ided["\6group"] or (ided["\6f"] and ided["\6f"]["\6group"]) then
-				-- if we have just started executing a grouping function,
-				-- ignore the current outlist and start the grouping.
-					
-          seed.__outlists[#seed.__outlists + 1] = {}
-          
-          if ided["\6group"] or ided["\6f"]["\6group"] then
-            nests[#nests + 1] = ided["\6group"] or ided["\6f"]["\6group"]
-          end
-		
-          nestlevel = #nests
-          
-          repeat
-            r = seed.__eval()
-            top = r[#r]
-            if '\5%stop' == top then
-              table.remove(r)
-            end
-            if not r["\5"] then
---              ided = seed.__step(ided, r, terminal)
-            end
-          until ('\5%stop' == top or #seed.__inlists[#seed.__inlists] == 0)
-          if '\5%stop' == top then
-            table.remove(seed.__outlists[#seed.__outlists])
-            table.remove(nests)
-            nestlevel = #nests
-          end
-          local otemp = table.remove(seed.__outlists)
-          local res = seed.__step(ided, otemp, true)
-          local o = {["\5"] = true}
-          for i = #res, 1, -1 do
-            local v = res[i]
-            if type(v) == 'table' and v["\6op"] then
-              local tv = seed._partial(v, {}, true)
-              table.insert(o, tv)
-              table.insert(inlist, tv) -- 
-            elseif type(v) == 'table' and v["\6f"] then
-              v["\6q"] = true
-              table.insert(o, v)
-              table.insert(inlist, v) -- seed.__inlists[#seed.__inlists]
-            else
-              table.insert(o, v)
-              table.insert(inlist, v) -- seed.__inlists[#seed.__inlists]
-            end
-          end
-          -- we have read one form, return it as a list of all results
-          return o
-        
-          
-				elseif type(outlist[#outlist]) == 'table' and (outlist[#outlist]["\6op"] or
-            outlist[#outlist]["\6f"]) then
-				-- if we are continuing a function and encounter another function,
-				-- terminate the continuing function, and call the current function
-        -- with the result of the previous.
-          local prev = seed.__step(table.remove(outlist), nil, true)
-          if prev["\6op"] then
-            table.insert(outlist, seed._partial(prev, {}, true))
-          elseif prev["\6g"] then
-            prev["\6q"] = true
-            table.insert(outlist, prev)
-          else
-            outlist = glue.extend(outlist, prev)
-          end
-					outlist[#outlist] = seed.__step(ided, prev, terminal)
-          
-					if(outlist[#outlist]["\5"]) then
-            if outlist[#outlist][1] == '\5%stop' then
-              local o = {}
-              for i= #prev, 1, -1 do
-                local v = prev[i]
-                if type(v) == 'table' and v["\6op"] then
---                  table.insert(o, seed._partial(v, {}, true))
-                  table.insert(o, seed._partial(v, {}))
-                elseif type(v) == 'table' and v["\6f"] then
---                  v["\6q"] = true
-                  table.insert(o, v)
-                else
-                  table.insert(o, v)
-                end
-              end
-              o[#o + 1] = '\5%stop'
-              return o
-            end
-            local r = glue.extend(prev, table.remove(outlist))
-						for i= #r, 1, -1 do
-              local v = r[i]
-              if type(v) == 'table' and v["\6op"] then
-                table.insert(seed.__inlists[#seed.__inlists], seed._partial(v, {}, true))
-              elseif type(v) == 'table' and v["\6f"] then
-                v["\6q"] = true
-                table.insert(seed.__inlists[#seed.__inlists], v)
-              else
-                table.insert(seed.__inlists[#seed.__inlists], v)
-              end
-						end
-            r["\5"] = true
-            return r
-          end
-        else
-				-- if we have just started executing a function,
-				-- replace the top of the outlist with the function called
-				-- with the content of the top of the outlist.
-					local start = #outlist
-					if start == 0 then start = 1 end
-					local r
-          if (ided["\6op"] and ided["\6arity"] == 0) or (ided["\6f"] and ided["\6f"]["\6arity"] == 0) then
-            r = seed.__step(ided, nil, terminal)
-            
-            if(r["\5"]) then
-              if r[1] == '\5%stop' then
-                outlist[#outlist + 1] = '\5%'
-                r["\5"] = nil
-                return r
-              end
-              
-              for i= #r, 1, -1 do
-                table.insert(seed.__inlists[#seed.__inlists], r[i])
-              end
-              for i= #outlist, 1, -1 do
-                table.insert(seed.__inlists[#seed.__inlists], outlist[i])
-              end
-              
-              -- return r
-            else
-              outlist[start] = r
-            end
-            return r
-          else
-            r = seed.__step(ided, outlist[#outlist], terminal)
-            if(r["\5"]) then
-              table.remove(outlist)
-              --[[
-              for i= #r, 1, -1 do
-                table.insert(seed.__inlists[#seed.__inlists], r[i])
-              end--]]
-              -- return r
-            else
-              outlist[start] = r
-            end
-            return r
-          end
-				end
-			elseif type(outlist[#outlist]) == 'table' and (outlist[#outlist]["\6op"] or
-				outlist[#outlist]["\6f"])
-				and not outlist[#outlist]["\6q"] then
-				-- if we are continuing a function that is on the outlist,
-				-- and we have been given data and not a new function,
-				-- replace the top of the outlist with the function part-called
-				-- with the latest item received.    
-        local ol = table.remove(outlist)
-        local r
-        if '\5%stop' == a then
-          r = seed.__step(ol, nil, true) -- NOTE using a, again
-        else
-          r = seed.__step(ol, a, terminal) -- NOTE using a, again
-        end
-				if(r["\5"]) then
-					for i=#r, 1, -1 do
-						table.insert(outlist, r[i])
-					end
-        else
-					outlist[#outlist + 1] = r
-				end
-        return r
 
-			else
-				-- if we are not continuing or starting a function,
-				-- append a piece of data to the outlist.
-        -- note that this does not return; either this data
-        -- will be an argument to an upcoming function, or
-        -- this is an element of a list or something similar,
-        -- and will be returned when the list terminates.
-				outlist[#outlist + 1] = a
-        return {a}
-			end
-		end
-	
-  if(#(seed.__inlists[#seed.__inlists]) == 0) then
-    table.remove(seed.__inlists)
+
+
+
+
+-- reads a sequence of generated sexps and data from
+-- the specified inlist, which should already have a program,
+-- and steps through it until it has read a single form.
+local function eval(inlist, quotelevel)
+  if type(inlist) ~= 'table' then return inlist end
+  quotelevel = quotelevel or 0
+  if #inlist == 0 then return {} end
+  
+  local arglist = {}
+  local term
+  if quotelevel > 0 then
+    for i=1, #inlist do
+      local ql = quotelevel
+      term = inlist[i]
+      if arglist[i-1] == "\6unquote" then ql = ql - 1 end
+      if type(term) == 'table' then 
+        arglist[i] = eval(term, ql)
+      else
+        if ql == 0 then
+          arglist[i] = (identify(term)) or term
+        else
+          arglist[i] = quote_id(term)
+        end
+      end
+    end
+    return arglist
+  else
+    local op, nm = identify(inlist[1])
+    op = defunction(op, nm)
+    
+    if type(op) ~= 'table' then
+      if is_keyword(op) then
+        term = inlist[2]
+        if type(term) == 'table' then 
+          arglist[1] = eval(term, quotelevel)
+        else
+          arglist[1], nm = identify(term)
+          if arglist[1] == nil then arglist[1] = term end
+        end
+        return kw_get(op, arglist[1])
+      else
+        error("Tried to call this invalid value like a fn:\n" .. pp.format(inlist[1]))
+      end
+    end
+    
+    if op.macro then      
+      for i=2, #inlist do
+        term = inlist[i]
+        if type(term) == 'table' then 
+          arglist[i-1] = eval(term, quotelevel + 1)
+        else
+          arglist[i-1] = quote_id(term)
+        end
+      end
+      return op(unpack(arglist))
+    end
+    
+    for i=2, #inlist do
+      term = inlist[i]
+      if type(term) == 'table' then 
+        arglist[i-1] = eval(term, quotelevel)
+      else
+        arglist[i-1], nm = identify(term)
+        if arglist[i-1] == nil then arglist[i-1] = term end
+      end
+    end
+    return op(unpack(arglist))
   end
-	return outlist
 end
 
-function seed._minirun(program)
-  table.insert(program, "\5%)")
-  local prog = glue.reverse(program)
-  table.insert(prog, "\5%(")
-  
-  seed.__inlists[#seed.__inlists + 1] = prog
-  return seed.__eval()
+seed.eval = eval
+
+function seed.minirun(program)
+  return eval({"\1do",program})
 end
 
 -- the entry point for a program. Clears any possible lingering state,
 -- then returns any number of args (ideally 1, if the program
 -- completed with one return value) based on evaluating a list of
 -- identifier strings and data.
-function seed.__run(program)
-	nests = {}
-  seed.__outlists = {}
-	seed.__inlists = {glue.reverse(program)}
-  seed.__scopes = {{},{}}
+function seed.run(program)
+	seed.__scopes = {{},{}}
 	seed.__namespace = nil
-	
-	return unpack(seed.__eval())
+  return eval({"\1do",program})
 end
 
 -- a re-entry point for a program. Keeps any possible lingering state,
 -- then returns any number of args (ideally 1, if the program
 -- completed with one return value) based on evaluating a list of
 -- identfier strings and data.
-function seed.__run_in(program)
-	seed.__inlists[#seed.__inlists + 1] = glue.reverse(program)
-	return unpack(seed.__eval())
+function seed.run_in(program)
+  return eval({"\1do",program})
 end
 
 seed["nil"] = nil
 
-seed.__munge_table = {
-["%"]="\6mod",
-["\\"]="\6back",
-}
-
-function seed.munge(name)
-	return name:gsub(
-		"^%.", "\6dot"):gsub(
-			"%.$", "\6dot"):gsub(
-				"[%%\\]", seed.__munge_table);
+local function def(ops, name, macro)
+	seed[name] = make_fn(ops, name, macro)
 end
 
-function seed.__def(op, arity, name, group, macro)
-	seed[seed.munge(name)] = seed._functor(op, arity, name, group, macro)
-end
+seed.def = def
 
-function seed._clean(name)
-	if type(name) == 'string' and string.find(name, "^\6,") then
-		return string.sub(name, 3)
-	else
-		return name
-	end
-end
-
-function seed._unquote(name)
-	if type(name) == 'string' then
-		if string.find(name, "^\6,`.") then
-			return "\6," .. string.sub(name, 4)
-		elseif seed._is_quoted(name) then
-			return "\5%" .. seed._clean(name)
-		end
-	end
-	return name
-end
-
-local function _length(t)
+local function count(t)
 	if type(t) == 'table' then
 		return #t
-	else
-		return 0
+	elseif not not t then
+		return 1
+  else
+    return 0
 	end
 end
 
+seed.count = count
+
+local function _do(...)
+  local res = nil
+  for i=1, select('#', ...) do
+    res = eval(select(i, ...))
+  end
+  return res
+end
+
+seed["do"] = _do
+
+
+--[==[
 local function _portion(t, starter, stopper, halt)
 	if type(t) == 'table' then
 		local stop = stopper or #t
@@ -1078,13 +825,14 @@ end
 seed.__def(_str, -1, "str")
 seed.__def(_stringify, 1, "stringify")
 seed.__def(pp.print, -1, "pprint")
-
+--]==]
 seed.math = math
 seed.io = io
 seed.file = file
 seed.os = os
 seed.string = string
 seed.print = print
+seed.fp = fun
 
 return glue.autoload(seed,
 {
@@ -1092,8 +840,10 @@ return glue.autoload(seed,
    ["-"] = 'lilikoi.operators',
    ["*"] = 'lilikoi.operators',
    ["/"] = 'lilikoi.operators',
-   ["^"] = 'lilikoi.operators',
-   ["\6mod"] = 'lilikoi.operators',
+   ["/|"] = 'lilikoi.operators',
+   ["/_"] = 'lilikoi.operators',
+   ["pow"] = 'lilikoi.operators',
+   ["%"] = 'lilikoi.operators',
    ["="] = 'lilikoi.operators',
    ["!="] = 'lilikoi.operators',
    ["<"] = 'lilikoi.operators',
@@ -1101,7 +851,8 @@ return glue.autoload(seed,
    [">"] = 'lilikoi.operators',
    [">="] = 'lilikoi.operators',
    concat = 'lilikoi.operators',
+   len = 'lilikoi.operators',
    transpile = 'lilikoi.transpiler',
    execute = 'lilikoi.transpiler',
-   munge = 'lilikoi.transpiler'
+   execute_in = 'lilikoi.transpiler',
 })

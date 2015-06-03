@@ -1,58 +1,25 @@
 local seed = require'lilikoi.seed'
+local fp = require'fun'
+local op = fp.op
 
-local function coredef(op, arity, name)
-	seed[name] = seed._functor(op, arity, name)  
+local function opdef(oper, name)
+	seed[name] = seed.make_fn({[2]=oper, [-1]=function(x, y, ...) return fp.reduce(oper, {x, y, ...}) end}, name)
 end
+opdef(op.lt, '<')
+opdef(op.le, '<=')
+opdef(op.eq, '=')
+opdef(op.ne, '!=')
+opdef(op.ge, '>=')
+opdef(op.gt, '>')
 
-local function add(a, b)
-	return a + b
-end
-coredef(add, 2, "+")
-local function sub(a, b)
-	return a - b
-end
-coredef(sub, 2, "-")
-local function mul(a, b)
-	return a * b
-end
-coredef(mul, 2, "*")
-local function div(a, b)
-	return a / b
-end
-coredef(div, 2, "/")
-local function pow(a, b)
-	return a ^ b
-end
-coredef(pow, 2, "^")
-local function mod(a, b)
-	return a % b
-end
-seed["\6mod"] = seed._functor(mod, 2, "%")
-local function eq(a, b)
-	return a == b
-end
-coredef(eq, 2, "=")
-local function noteq(a, b)
-	return a ~= b
-end
-coredef(noteq, 2, "!=")
-local function lt(a, b)
-	return a < b
-end
-coredef(lt, 2, "<")
-local function lteq(a, b)
-	return a <= b
-end
-coredef(lteq, 2, "<=")
-local function gt(a, b)
-	return a > b
-end
-coredef(gt, 2, ">")
-local function gteq(a, b)
-	return a >= b
-end
-coredef(gteq, 2, ">=")
-local function concat(a, b)
-	return a .. b
-end
-coredef(concat, 2, "concat")
+opdef(op.add, '+')
+opdef(op.div, '/')
+opdef(op.floordiv, '/_')
+opdef(op.intdiv, '/|')
+opdef(op.mod, '%')
+opdef(op.mul, '*')
+opdef(op.pow, 'pow')
+opdef(op.concat, 'concat')
+
+seed['-'] = seed.make_fn({[1]=op.neq, [2]=op.sub, [-1]=function(x, y, ...) return fp.reduce(op.sub, {x, y, ...}) end}, name)
+seed.len = seed.make_fn({[1]=op.len}, name)
