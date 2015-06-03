@@ -451,12 +451,13 @@ end
 
 uit.drop_while = function(fun, trip)
     assert(type(fun) == "function" or rawget(getmetatable(fun) or {}, "__call"), "invalid first argument to drop_while")
-    local cont, state_x_prev
+    local cont, state_x, state_x_prev
+    state_x = trip[3]
     repeat
-        state_x_prev = deepcopy(trip[3])
-        trip[3], cont = drop_while_x(fun, trip[1](trip[2], trip[3]))
+        state_x_prev = deepcopy(state_x)
+        state_x, cont = drop_while_x(fun, trip[1](trip[2], state_x))
     until not cont
-    if trip[3] == nil then
+    if state_x == nil then
         return nil_gen, nil, nil
     end
     return {trip[1], trip[2], state_x_prev}
@@ -656,9 +657,10 @@ local foldl = function(fun, start, gen, param, state)
 end
 
 uit.foldl = function(fun, start, trip)
+    local state_x = trip[3]
     while true do
-        trip[3], start = foldl_call(fun, start, trip[1](trip[2], trip[3]))
-        if trip[3] == nil then
+        state_x, start = foldl_call(fun, start, trip[1](trip[2], state_x))
+        if state_x == nil then
             break;
         end
     end
@@ -675,10 +677,9 @@ local reduce = function(fun, gen, param, state)
 end
 
 uit.reduce = function(fun, trip)
-    local start
-    trip[3], start = trip[1](trip[2], trip[3])
-    while trip[3] ~= nil do
-        trip[3], start = foldl_call(fun, start, trip[1](trip[2], trip[3]))
+    local state_x, start = trip[1](trip[2], state_x)
+    while state_x ~= nil do
+        state_x, start = foldl_call(fun, start, trip[1](trip[2], state_x))
     end
     return start
 end
@@ -758,11 +759,11 @@ local all = function(fun, gen, param, state)
 end
 
 uit.all = function(fun, trip)
-    local r
+    local state_x, r = trip[3]
     repeat
-        trip[3], r = call_if_not_empty(fun, trip[1](trip[2], trip[3]))
-    until trip[3] == nil or not r
-    return trip[3] == nil
+        state_x, r = call_if_not_empty(fun, trip[1](trip[2], state_x))
+    until state_x == nil or not r
+    return state_x == nil
 end
 
 local any = function(fun, gen, param, state)
@@ -775,10 +776,10 @@ local any = function(fun, gen, param, state)
 end
 
 uit.any = function(fun, trip)
-    local r
+    local state_x, r = trip[3]
     repeat
-        trip[3], r = call_if_not_empty(fun, trip[1](trip[2], trip[3]))
-    until trip[3] == nil or r
+        state_x, r = call_if_not_empty(fun, trip[1](trip[2], state_x))
+    until state_x == nil or r
     return not not r
 end
 
@@ -796,10 +797,11 @@ end
 uit.sum = function(trip)
     local s = 0
     local r = 0
+    local state_x = trip[3]
     repeat
         s = s + r
-        trip[3], r = trip[1](trip[2], trip[3])
-    until trip[3] == nil
+        state_x, r = trip[1](trip[2], state_x)
+    until state_x == nil
     return s
 end
 
@@ -817,10 +819,11 @@ end
 uit.product = function(trip)
     local p = 1
     local r = 1
+    local state_x
     repeat
         p = p * r
-        trip[3], r = trip[1](trip[2], trip[3])
-    until trip[3] == nil
+        state_x, r = trip[1](trip[2], state_x)
+    until state_x == nil
     return p
 end
 
@@ -854,8 +857,8 @@ local min = function(gen, param, state)
 end
 
 uit.min = function(trip)
-    trip[3], m = trip[1](trip[2], trip[3])
-    if trip[3] == nil then
+    local state_x, m = trip[1](trip[2], trip[3])
+    if state_x == nil then
         error("min: iterator is empty")
     end
 
@@ -867,7 +870,7 @@ uit.min = function(trip)
         cmp = min_cmp
     end
 
-    for _, r in trip[1], trip[2], trip[3] do
+    for _, r in trip[1], trip[2], state_x do
         m = cmp(m, r)
     end
     return m
@@ -887,13 +890,12 @@ local min_by = function(cmp, gen, param, state)
 end
 
 uit.min_by = function(cmp, trip)
-    local m
-    trip[3], m = trip[1](trip[2], trip[3])
-    if trip[3] == nil then
+    local state_x, m = trip[1](trip[2], trip[3])
+    if state_x == nil then
         error("min: iterator is empty")
     end
 
-    for _, r in trip[1], trip[2], trip[3] do
+    for _, r in trip[1], trip[2], state_x do
         m = cmp(m, r)
     end
     return m
@@ -921,9 +923,8 @@ local max = function(gen, param, state)
 end
 
 uit.max = function(trip)
-    local m
-    trip[3], m = trip[1](trip[2], trip[3])
-    if trip[3] == nil then
+    local state_x, m = trip[1](trip[2], trip[3])
+    if state_x == nil then
         error("max: iterator is empty")
     end
 
@@ -935,7 +936,7 @@ uit.max = function(trip)
         cmp = max_cmp
     end
 
-    for _, r in trip[1], trip[2], trip[3] do
+    for _, r in trip[1], trip[2], state_x do
         m = cmp(m, r)
     end
     return m
@@ -955,13 +956,12 @@ local max_by = function(cmp, gen, param, state)
 end
 
 uit.max_by = function(cmp, trip)
-    local m
-    trip[3], m = trip[1](trip[2], trip[3])
-    if trip[3] == nil then
+    local state_x, m = trip[1](trip[2], trip[3])
+    if state_x == nil then
         error("max: iterator is empty")
     end
 
-    for _, r in trip[1], trip[2], trip[3] do
+    for _, r in trip[1], trip[2], state_x do
         m = cmp(m, r)
     end
     return m
@@ -981,10 +981,10 @@ local totable = function(gen, param, state)
 end
 
 uit.totable = function(trip)
-    local tab, key, val = {}
+    local state_x, tab, val = trip[3], {}
     while true do
-        trip[3], val = trip[1](trip[2], trip[3])
-        if trip[3] == nil then
+        state_x, val = trip[1](trip[2], state_x)
+        if state_x == nil then
             break
         end
         table.insert(tab, val)
@@ -1006,9 +1006,9 @@ local tomap = function(gen, param, state)
 end
 
 uit.tomap = function(trip)
-    local tab, key, val = {}
+    local state_x, tab, key, val = trip[3], {}
     while true do
-        trip[3], key, val = trip[1](trip[2], trip[3])
+        state_x, key, val = trip[1](trip[2], state_x)
         if state_x == nil then
             break
         end
@@ -1261,9 +1261,8 @@ local reductions = function(fun, gen, param, state)
 end
 
 uit.reductions = function(fun, trip)
-  local start
-  trip[3], start = trip[1](trip[2], trip[3])
-  return {chain({iter({start})}, {scan_helper(fun, start, trip[1], trip[2], trip[3])})}
+  local state_x, start = trip[1](trip[2], trip[3])
+  return {chain({iter({start})}, {scan_helper(fun, start, trip[1], trip[2], state_x)})}
 end
 --------------------------------------------------------------------------------
 -- Operators
