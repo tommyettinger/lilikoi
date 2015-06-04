@@ -12,6 +12,13 @@
 -- an 'fn' is a table with at least one numerical arity given as a key, with either
 --    a function or sexp as its value. it may also have other keys that are not numbers,
 --    containing information such as whether or not the fn is a macro.
+-- a lilikoi program is transpiled to a 'codeseq' consisting of lua numbers, booleans,
+--    strings (always with one control character prepended to show if it is an
+--    identifier with '\1', real string with '\2', keyword with '\5', or quoted
+--    identfier with '\6'), or tables containing sub-programs.
+-- macros treat identifiers passed to them as quoted identfiers. a macro returns a
+--    codeseq, which when the macro is called, is evaluated immediately.
+
 
 local seed = {}
 
@@ -33,7 +40,10 @@ glue.cpath(glue.bin .. "/bin/mingw32")
 glue.cpath(glue.bin .. "/bin/mingw32/clib")
 
 local pp = require'pp'
-local fun = require'fun'
+local fp = require'fun'
+
+local uit = fp.uit
+
 seed.__scopes = {{}, {}}
 seed.__namespace = nil
 
@@ -155,102 +165,32 @@ local function quote_id(name)
   return name
 end
 
+local function dequote(name)
+  if is_quoted(name) then
+    return "\1" .. string.sub(name, 2)
+  end
+  return name
+end
+
 seed.cleanup = cleanup
 seed.identify = identify
 seed["quote-id"] = quote_id
-
-local nests = {}
-local nestlevel = 0
-
--- runs a partial function once it has been supplied all needed args.
--- returns the function's result, if it has one, followed by another return
--- "\5", or if it has not been supplied enough args, it returns the function
--- with a larger list of supplied args and no extra return. handles grouping.
-function seed.__step(fun, arg, terminal)
-	local f, given, partial
-	-- in the case that we have been given a functor, not a partial
-	if fun["\6op"] then
-		f = fun
-		given = {}
-		partial = seed._partial(fun, given)
-	else
-		f = fun["\6f"]
-		given = fun["\6g"]
-		partial = fun
-	end
-	if arg == nil then
-		if #given == f["\6arity"] then
-			local t = {f["\6op"](unpack(given))}
-			t["\5"]=true
-			return t
-		elseif f["\6macro"] and terminal then
-			local t = {f["\6op"](given)}
-			t["\5"]=true
-			return t
-		elseif -1 == f["\6arity"] and terminal then
-			local t = {f["\6op"](unpack(given))}
-			t["\5"]=true
-			return t
-		else
-			return partial
-		end
-	end
-  --[[
-	if nests[#nests] and (nests[#nests] == arg or (type(arg) == 'table' and ((arg["\6op"]
-      and nests[#nests] == arg["\6name"])
-			or (arg["\6f"] and arg["\6f"]["\6op"]
-			and nests[#nests] == arg["\6f"]["\6name"])))) then
-		if #nests == 0 then
-			local t = {f["\6op"](given)}
-			t["\5"]=true
-			return t
-		else
-			given[#given + 1] = arg
-		end
-	elseif type(arg) == 'table' and ((arg["\6op"] and arg["\6group"])
-			or (arg["\6f"] and arg["\6f"]["\6group"])) then
-		nests[#nests + 1] =  (arg["\6group"] or arg["\6f"]["\6group"])
-		given[#given + 1] = arg
-	else--]]
-  if f["\6group"] then
-    given = glue.extend(given, arg)
-  elseif f["\6arity"] == -1 or #given < f["\6arity"] then
-		given[#given + 1] = arg
-	end
-	if #given == f["\6arity"] then
-		local t = {f["\6op"](unpack(given))}
-		t["\5"]=true
-		return t
-	elseif f["\6macro"] and terminal then
-		local t = {f["\6op"](given)}
-		t["\5"]=true
-		return t
-	elseif -1 == f["\6arity"] and terminal then
-		local t = {f["\6op"](unpack(given))}
-		t["\5"]=true
-		return t
-	end
-	return partial
-end
-
-
-
-
+seed.dequote = dequote
 
 -- reads a sequence of generated sexps and data from
--- the specified inlist, which should already have a program,
+-- the specified codeseq, which should already have a program,
 -- and steps through it until it has read a single form.
-local function eval(inlist, quotelevel)
-  if type(inlist) ~= 'table' then return inlist end
+local function eval(codeseq, quotelevel)
+  if type(codeseq) ~= 'table' then return codeseq end
   quotelevel = quotelevel or 0
-  if #inlist == 0 then return {} end
+  if #codeseq == 0 then return {} end
   
   local arglist = {}
   local term
   if quotelevel > 0 then
-    for i=1, #inlist do
+    for i=1, #codeseq do
       local ql = quotelevel
-      term = inlist[i]
+      term = codeseq[i]
       if arglist[i-1] == "\6unquote" then ql = ql - 1 end
       if type(term) == 'table' then 
         arglist[i] = eval(term, ql)
@@ -264,12 +204,12 @@ local function eval(inlist, quotelevel)
     end
     return arglist
   else
-    local op, nm = identify(inlist[1])
+    local op, nm = identify(codeseq[1])
     op = defunction(op, nm)
     
     if type(op) ~= 'table' then
       if is_keyword(op) then
-        term = inlist[2]
+        term = codeseq[2]
         if type(term) == 'table' then 
           arglist[1] = eval(term, quotelevel)
         else
@@ -278,24 +218,24 @@ local function eval(inlist, quotelevel)
         end
         return kw_get(op, arglist[1])
       else
-        error("Tried to call this invalid value like a fn:\n" .. pp.format(inlist[1]))
+        error("Tried to call this invalid value like a fn:\n" .. pp.format(codeseq[1]))
       end
     end
     
     if op.macro then      
-      for i=2, #inlist do
-        term = inlist[i]
+      for i=2, #codeseq do
+        term = codeseq[i]
         if type(term) == 'table' then 
           arglist[i-1] = eval(term, quotelevel + 1)
         else
           arglist[i-1] = quote_id(term)
         end
       end
-      return op(unpack(arglist))
+      return seed.minirun(op(unpack(arglist)))
     end
     
-    for i=2, #inlist do
-      term = inlist[i]
+    for i=2, #codeseq do
+      term = codeseq[i]
       if type(term) == 'table' then 
         arglist[i-1] = eval(term, quotelevel)
       else
@@ -309,26 +249,28 @@ end
 
 seed.eval = eval
 
+-- a way to run a program that was not generated by the transpiler,
+-- ensuring the body of the program is wrapped in a call to do so
+-- all forms in the program are evaluated in order and the last
+-- result is returned.
 function seed.minirun(program)
   return eval({"\1do",program})
 end
 
 -- the entry point for a program. Clears any possible lingering state,
 -- then returns any number of args (ideally 1, if the program
--- completed with one return value) based on evaluating a list of
--- identifier strings and data.
+-- completed with one return value) based on evaluating a codeseq.
 function seed.run(program)
 	seed.__scopes = {{},{}}
 	seed.__namespace = nil
-  return eval({"\1do",program})
+  return eval(program)
 end
 
 -- a re-entry point for a program. Keeps any possible lingering state,
 -- then returns any number of args (ideally 1, if the program
--- completed with one return value) based on evaluating a list of
--- identfier strings and data.
+-- completed with one return value) based on evaluating a codeseq.
 function seed.run_in(program)
-  return eval({"\1do",program})
+  return eval(program)
 end
 
 seed["nil"] = nil
@@ -337,30 +279,59 @@ local function def(ops, name, macro)
 	seed[name] = make_fn(ops, name, macro)
 end
 
-seed.def = def
+seed._def = def
 
 local function count(t)
 	if type(t) == 'table' then
-		return #t
+		return #t, true
 	elseif not not t then
-		return 1
+		return 1, false
   else
-    return 0
+    return 0, false
 	end
 end
 
-seed.count = count
+def({[1]=count}, "count")
 
 local function _do(...)
   local res = nil
   for i=1, select('#', ...) do
-    res = eval(select(i, ...))
+    res = (select(i, ...))
   end
   return res
 end
 
-seed["do"] = _do
+def({[-1]=_do}, "do")
 
+local function seq(t)
+  return uit.iter(t, nil, nil)
+end
+
+def({[1]=seq}, "seq")
+
+
+local function access(top, ...)
+  local res = lookup(cleanup(top))
+  for i=1, select('#', ...) do
+    res = res[cleanup(select(i, ...))]
+    if res == nil then return res end
+  end
+  return res
+end
+
+def({[-1]=access}, "access", true)
+
+local function vector(...)
+  return {...}
+end
+
+def({[-1]=vector}, "vector")
+
+def({[2]=function(f, coll) return uit.reduce(f, seq(coll)) end, 
+     [3]=function(f, start, coll) return uit.foldl(f, start, seq(coll)) end }, "reduce")
+
+def({[2]=function(f, coll) return uit.reductions(f, seq(coll)) end, 
+     [3]=function(f, start, coll) return uit.scan(f, start, seq(coll)) end }, "reductions")
 
 --[==[
 local function _portion(t, starter, stopper, halt)

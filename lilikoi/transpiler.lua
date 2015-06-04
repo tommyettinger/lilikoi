@@ -29,9 +29,9 @@ local function transfer_helper(capt)
  
 ---
 -- transfers all the elements in a lexed/parsed AST to a code string
-local function transfer(capt, pos)
+local function transfer(capt, position)
   local state = {}
-  pos = pos or 0
+  local pos = position or 0
   while pos < #capt do
     pos = pos + 1
     local term = capt[pos]
@@ -39,10 +39,9 @@ local function transfer(capt, pos)
     if th then
       state[#state + 1] = th
     else
-      state.close = true
       -- we have encountered a non-simple form
       if term[1] == 'CHAIN' then
-        state[#state + 1] = '{"\1chain",'
+        state[#state + 1] = '{"\1access",'
         state[#state + 1] = transfer(term, 1)        
       elseif term[1] == 'PAREN' then
         if term[2] == '(' then
@@ -88,7 +87,7 @@ local function transfer(capt, pos)
       end
     end
   end
-  if state.close then
+  if position then
     return table.concat(state) .. '},'
   else
     return table.concat(state)

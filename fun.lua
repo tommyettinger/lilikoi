@@ -87,6 +87,16 @@ local tab_gen = function(tab, k)
     return key, key, value
 end
 
+local uitmeta = {__uit = true}
+
+uit.unify = function(obj, param, state)
+  return setmetatable({obj, param, state}, uitmeta)
+end
+
+uit.is_unified = function(trip)
+  return type(trip) == 'table' and rawget(getmetatable(trip) or {}, "__uit")
+end
+
 local iter = function(obj, param, state)
     assert(obj ~= nil, "invalid iterator")
     if (type(obj) == "function" or rawget(getmetatable(obj) or {}, "__call")) then
@@ -108,7 +118,10 @@ local iter = function(obj, param, state)
 end
 
 uit.iter = function(obj, param, state)
-    return {iter(obj, param, state)}
+    if uit.is_unified(obj) then
+      return obj
+    end
+    return uit.unify(iter(obj, param, state))
 end
 
 local iter_tab = function(obj)
@@ -178,7 +191,7 @@ local range = function(start, stop, step)
 end
 
 uit.range = function(start, stop, step)
-    return {range(start, stop, step)}
+    return uit.unify(range(start, stop, step))
 end
 
 local duplicate_table_gen = function(param_x, state_x)
@@ -202,7 +215,7 @@ local duplicate = function(...)
 end
 
 uit.duplicate = function(...)
-    return {duplicate(...)}
+    return uit.unify(duplicate(...))
 end
 
 local tabulate = function(fun)
@@ -211,7 +224,7 @@ local tabulate = function(fun)
 end
 
 uit.tabulate = function(fun)
-    return {tabulate(fun)}
+    return uit.unify(tabulate(fun))
 end
 
 local zeros = function()
@@ -219,7 +232,7 @@ local zeros = function()
 end
 
 uit.zeros = function()
-  return {duplicate_gen, 0, 0}
+  return uit.unify(duplicate_gen, 0, 0)
 end
 
 local ones = function()
@@ -227,7 +240,7 @@ local ones = function()
 end
 
 uit.ones = function()
-  return {duplicate_gen, 1, 0}
+  return uit.unify(duplicate_gen, 1, 0)
 end
 
 local rands_gen = function(param_x, _state_x)
@@ -254,7 +267,7 @@ local rands = function(n, m)
 end
 
 uit.rands = function(n, m)
-  return {rands(n, m)}
+  return uit.unify(rands(n, m))
 end
 
 --------------------------------------------------------------------------------
@@ -332,7 +345,7 @@ end
 uit.tail = function(trip)
     trip[3] = trip[1](trip[2], trip[3])
     if trip[3] == nil then
-        return nil_gen, nil, nil
+        return uit.unify(nil_gen, nil, nil)
     end
     return trip
 end
@@ -362,7 +375,7 @@ end
 
 uit.take_n = function(n, trip)
     assert(n >= 0, "invalid first argument to take_n")
-    return {take_n_gen, {n, trip[1], trip[2]}, {0, trip[3]}}
+    return uit.unify(take_n_gen, {n, trip[1], trip[2]}, {0, trip[3]})
 end
 
 
@@ -386,7 +399,7 @@ end
 
 uit.take_while = function(fun, trip)
     assert(type(fun) == "function" or rawget(getmetatable(fun) or {}, "__call"), "invalid first argument to take_while")
-    return {take_while_gen, {fun, trip[1], trip[2]}, trip[3]}
+    return uit.unify(take_while_gen, {fun, trip[1], trip[2]}, trip[3])
 end
 
 local take = function(n_or_fun, gen, param, state)
@@ -422,7 +435,7 @@ uit.drop_n = function(n, trip)
     for i=1,n,1 do
         trip[3] = trip[1](trip[2], trip[3])
         if trip[3] == nil then
-            return nil_gen, nil, nil
+            return uit.unify(nil_gen, nil, nil)
         end
     end
     return trip
@@ -458,9 +471,9 @@ uit.drop_while = function(fun, trip)
         state_x, cont = drop_while_x(fun, trip[1](trip[2], state_x))
     until not cont
     if state_x == nil then
-        return nil_gen, nil, nil
+        return uit.unify(nil_gen, nil, nil)
     end
-    return {trip[1], trip[2], state_x_prev}
+    return uit.unify(trip[1], trip[2], state_x_prev)
 end
 
 local drop = function(n_or_fun, gen, param, state)
@@ -537,7 +550,7 @@ local indexes = function(x, gen, param, state)
 end
 
 uit.indexes = function(x, trip)
-    return {indexes_gen, {x, trip[1], trip[2]}, {0, trip[3]}}
+    return uit.unify(indexes_gen, {x, trip[1], trip[2]}, {0, trip[3]})
 end
 
 -- TODO: undocumented
@@ -598,7 +611,7 @@ local filter = function(fun, gen, param, state)
 end
 
 uit.filter = function(fun, trip)
-    return {filter_gen, {fun, trip[1], trip[2]}, trip[3]}
+    return uit.unify(filter_gen, {fun, trip[1], trip[2]}, trip[3])
 end
 
 local grep = function(fun_or_regexp, gen, param, state)
@@ -677,7 +690,7 @@ local reduce = function(fun, gen, param, state)
 end
 
 uit.reduce = function(fun, trip)
-    local state_x, start = trip[1](trip[2], state_x)
+    local state_x, start = trip[1](trip[2], trip[3])
     while state_x ~= nil do
         state_x, start = foldl_call(fun, start, trip[1](trip[2], state_x))
     end
@@ -1032,7 +1045,7 @@ local map = function(fun, gen, param, state)
 end
 
 uit.map = function(fun, trip)
-    return {map_gen, {trip[1], trip[2], fun}, trip[3]}
+    return uit.unify(map_gen, {trip[1], trip[2], fun}, trip[3])
 end
 
 local enumerate_gen_call = function(state, i, state_x, ...)
@@ -1054,7 +1067,7 @@ local enumerate = function(gen, param, state)
 end
 
 uit.enumerate = function(trip)
-    return {enumerate_gen, {trip[1], trip[2]}, {0, trip[3]}}
+    return uit.unify(enumerate_gen, {trip[1], trip[2]}, {0, trip[3]})
 end
 
 local intersperse_call = function(i, state_x, ...)
@@ -1080,7 +1093,7 @@ local intersperse = function(x, gen, param, state)
 end
 
 uit.intersperse = function(x, trip)
-    return {tail(intersperse_gen, {x, trip[1], trip[2]}, {0, trip[3]})}
+    return uit.unify(tail(intersperse_gen, {x, trip[1], trip[2]}, {0, trip[3]}))
 end
 
 --------------------------------------------------------------------------------
@@ -1143,7 +1156,7 @@ uit.zip = function(...)
         state[i] = elem[3]
     end
 
-    return {zip_gen, param, state}
+    return uit.unify(zip_gen, param, state)
 end
 
 local cycle_gen_call = function(param, state_x, ...)
@@ -1165,7 +1178,7 @@ local cycle = function(gen, param, state)
 end
 
 uit.cycle = function(trip)
-    return {cycle_gen, trip, deepcopy(trip[3])}
+    return uit.unify(cycle_gen, trip, deepcopy(trip[3]))
 end
 
 -- call each other
@@ -1220,7 +1233,7 @@ uit.chain = function(...)
         param[3 * i - 1] = elem[2]
         param[3 * i] = elem[3]
     end
-    return {chain_gen_r1, param, {1, param[3]}}
+    return uit.unify(chain_gen_r1, param, {1, param[3]})
 end
 
 --------------------------------------------------------------------------------
@@ -1251,7 +1264,7 @@ local scan = function(fun, start, gen, param, state)
 end
 
 uit.scan = function(fun, start, trip)
-  return {chain({iter({start})}, {scan_helper(fun, start, trip[1], trip[2], trip[3])})}
+  return uit.unify(chain({iter({start})}, {scan_helper(fun, start, trip[1], trip[2], trip[3])}))
 end
 
 local reductions = function(fun, gen, param, state)
@@ -1262,13 +1275,13 @@ end
 
 uit.reductions = function(fun, trip)
   local state_x, start = trip[1](trip[2], trip[3])
-  return {chain({iter({start})}, {scan_helper(fun, start, trip[1], trip[2], state_x)})}
+  return uit.unify(chain({iter({start})}, {scan_helper(fun, start, trip[1], trip[2], state_x)}))
 end
 --------------------------------------------------------------------------------
 -- Operators
 --------------------------------------------------------------------------------
 
-operator = {
+local operator = {
     ----------------------------------------------------------------------------
     -- Comparison operators
     ----------------------------------------------------------------------------

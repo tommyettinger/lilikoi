@@ -21,5 +21,10 @@ opdef(op.mul, '*')
 opdef(op.pow, 'pow')
 opdef(op.concat, 'concat')
 
-seed['-'] = seed.make_fn({[1]=op.neq, [2]=op.sub, [-1]=function(x, y, ...) return fp.reduce(op.sub, {x, y, ...}) end}, name)
-seed.len = seed.make_fn({[1]=op.len}, name)
+opdef(op.land, 'raw-and')
+opdef(op.lor, 'raw-or')
+
+seed['-'] = seed.make_fn({[1]=op.neq, [2]=op.sub, [-1]=function(x, y, ...) return fp.reduce(op.sub, {x, y, ...}) end}, '-')
+seed.len = seed.make_fn({[1]=op.len}, 'len')
+seed['raw-not'] = seed.make_fn({[1]=op.lnot}, 'raw-not')
+seed['truthy'] = seed.make_fn({[1]=op.truth}, 'truthy')
