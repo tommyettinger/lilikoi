@@ -28,7 +28,8 @@ THE SOFTWARE.
 
 local M = {}
 
-local lpeg = require('lpeg')
+local lpeg = require'lpeg'
+local pp = require'pp'
 
 local P, R, S, V = lpeg.P, lpeg.R, lpeg.S, lpeg.V
 local Cc, Ct, Cp = lpeg.Cc, lpeg.Ct, lpeg.Cp
@@ -132,14 +133,16 @@ local space = S('\t\v\f\n\r ,')^1
 -- Whitespace.
 local ws = token('WHITESPACE', space)
 local equals = P"="^0
-local open = "[" * Cg(equals, "init") * "[" * P"\n"^-1
+local open = C("[") * Cg(equals, "init") * C("[" * P"\n"^-1)
 local close = "]" * C(equals) * "]"
 local closeeq = Cmt(close * Cb("init"), function (s, i, a, b) return a == b end)
-local longstring = open * (P(1) - closeeq)^0 * close / 1
-
+local longstring0 = C((P(1) - closeeq)^0) * C(close) * Cp()
+local longstring = Cmt(open * longstring0, function(s, i, brace1, brace2, st, close_brace, mid)
+    return true, brace1 .. mid .. brace2, st .. close_brace
+  end)
 -- Comments.
 local line_comment = ';' * C(patterns.nonnewline^0)
-local block_comment = ';;' * C(longstring)
+local block_comment = ';;' * (longstring / "%0")
 local comment = Ct(Cc('COMMENT') * ((block_comment + line_comment) / 1) * Cc(nil))
 --('COMMENT', block_comment + line_comment)
 
@@ -150,7 +153,7 @@ local comment = Ct(Cc('COMMENT') * ((block_comment + line_comment) / 1) * Cc(nil
 --local sq_str = delimited_range("'")
 local dq_str = delimited_range('"')
 local str = Ct(Cc('STRING') * dq_str * Cc(nil))
-
+local longstr = Ct(Cc('LONGSTRING') * (P'#' * longstring) * Cc(nil))
 -- Numbers.
 local lj_int = S('-')^-1 * ((patterns.dec_num + patterns.hex_num) * (P('ULL') + P('ull') + P('LL') + P('ll'))^-1)
 local number = token('NUMBER', patterns.float + lj_int)
@@ -165,11 +168,11 @@ local chain = Ct(Cc('CHAIN') * (identifier * P".")^1 * identifier * Cc(nil))
 local keyword = token('KEYWORD', S(':') * ids^1)
 
 local form = P{"single";
-  single = (str + number +  keyword + chain + identifier +
+  single = (longstr + str + number +  keyword + chain + identifier +
     V"dis" + V"met" + V"pref" + V"paren" + V"brace" + V"bracket") * (ws + comment)^0,
   paren = Ct(Cc('PAREN') * C(P'#(' + P'(') * V"single"^0 *  P')' * Cc(nil)),
   brace = Ct(Cc('BRACE') * C(P'#{' + P'{') * V"single"^0 *  P'}' * Cc(nil)),
-  bracket = Ct(Cc('BRACKET') * C(P'#[' + P'[') * V"single"^0 *  P']' * Cc(nil)),
+  bracket = Ct(Cc('BRACKET') * C(P'[') * V"single"^0 *  P']' * Cc(nil)),
   met = Ct(Cc('META') * P'^' * V"single" * V"single" * Cc(nil)),
   dis = Cmt(P'#_' * V"single", function(s, i, ...) return true end),
   pref = Ct(Cc('PREFIX') * C(S"`~'$") * V"single" * Cc(nil))
@@ -203,7 +206,7 @@ lexer._GRAMMAR = Ct(join_tokens()^0)
 -- @return table of token kinds, contents, positions.
 -- @name lex
 function M.lex(text)
-    return lpmatch(lexer._GRAMMAR, text)
+  return lpmatch(lexer._GRAMMAR, text)
 end
 
 return M

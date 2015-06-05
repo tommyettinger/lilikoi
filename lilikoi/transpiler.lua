@@ -14,6 +14,8 @@ local function transfer_helper(capt)
 		return 'false,'
 	elseif capt[1] == 'STRING' then
 		return '"\2'.. string.gsub(capt[2], "([\n\"\'])", "\\%1") .. '",'
+	elseif capt[1] == 'LONGSTRING' then
+		return capt[2] .. '\2'.. capt[3] .. ','
 	elseif capt[1] == 'NUMBER' then
 		return capt[2] .. ","
 	elseif capt[1] == 'COMMENT' then
@@ -52,13 +54,8 @@ local function transfer(capt, position)
           state[#state + 1] = transfer(term, 2)
         end
       elseif term[1] == 'BRACKET' then
-        if term[2] == '[' then
-          state[#state + 1] = '{"\1vector",'
-          state[#state + 1] = transfer(term, 2)
-        else
-          state[#state + 1] = '{"\1tuple",'
-          state[#state + 1] = transfer(term, 2)
-        end
+        state[#state + 1] = '{"\1vector",'
+        state[#state + 1] = transfer(term, 2)
       elseif term[1] == 'BRACE' then
         if term[2] == '{' then
           state[#state + 1] = '{"\1dict",'

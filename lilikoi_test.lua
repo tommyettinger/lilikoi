@@ -125,8 +125,10 @@ local function check(llk)
 	pp(lil.run(llk))
 end
 
+
 check("1")
 check('"abc"')
+check('#[[abc\ndef]]')
 check('"ab\ncd" 2')
 check('()')
 check('(+ 1 2)')
@@ -135,15 +137,21 @@ check('[1]')
 check('(+ 1.1 2.2 3.3 4.4 (* 3 3))')
 check('(reduce + [1 2 3])')
 check('(reduce + [1 2 3 math.pi])')
+
+
+check("(reduce + ;;[[commentary\nYou'd think this should work, right?]] [1 2 3])")
+
+
+check("(reduce + '(1 2 3))")
 check('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})')
 check('(reduce #(str %1 (val %2)) ^[:what ever] {:a 1 :b 2})')
-check("(reduce + ;;[[commentary\nYou'd think this should work, right?]] [1 2 3])")
-check("(reduce + '(1 2 3))")
 check("(apply math.min '(1 2 3))")
 check("(defmacro defvariad [opname op] `(defn ~opname [& $args] (reduce ~op $args)))")
 check("(apply '~$math.min.foo.bar '''(1 2 3))")
 check("math.foo.bar.pi")
 check('(reduce + [1 2 3])')
+
+
 --[=[
 each(pp.print, scan(operator.add, 0, {2, 4, 6, 8}))
 each(pp.print, reductions(operator.add, {2, 4, 6, 8}))

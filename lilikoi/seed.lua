@@ -206,7 +206,6 @@ local function eval(codeseq, quotelevel)
   else
     local op, nm = identify(codeseq[1])
     op = defunction(op, nm)
-    
     if type(op) ~= 'table' then
       if is_keyword(op) then
         term = codeseq[2]
@@ -222,7 +221,7 @@ local function eval(codeseq, quotelevel)
       end
     end
     
-    if op.macro then      
+    if op.macro then
       for i=2, #codeseq do
         term = codeseq[i]
         if type(term) == 'table' then 
@@ -231,6 +230,7 @@ local function eval(codeseq, quotelevel)
           arglist[i-1] = quote_id(term)
         end
       end
+      if op.macro == 'quote' then return op(unpack(arglist)) end
       return seed.minirun(op(unpack(arglist)))
     end
     
@@ -332,6 +332,13 @@ def({[2]=function(f, coll) return uit.reduce(f, seq(coll)) end,
 
 def({[2]=function(f, coll) return uit.reductions(f, seq(coll)) end, 
      [3]=function(f, start, coll) return uit.scan(f, start, seq(coll)) end }, "reductions")
+
+local function quote(term)
+  return term
+end
+
+def({[1]=quote}, "quote", "quote")
+
 
 --[==[
 local function _portion(t, starter, stopper, halt)
