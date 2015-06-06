@@ -19,7 +19,7 @@ glue.cpath(glue.bin .. "/bin/mingw32/clib")
 local pp = require'pp'
 local fun = require'fun' ()
 local lil = require'lilikoi'
---local grammar = require'lilikoi.grammar'
+local grammar = require'lilikoi.grammar'
 
 
 --[=[
@@ -125,7 +125,7 @@ local function check(llk)
 	pp(lil.run(llk))
 end
 
-
+--[=[
 check("1")
 check('"abc"')
 check('#[[abc\ndef]]')
@@ -150,9 +150,17 @@ check("(defmacro defvariad [opname op] `(defn ~opname [& $args] (reduce ~op $arg
 check("(apply '~$math.min.foo.bar '''(1 2 3))")
 check("math.foo.bar.pi")
 check('(reduce + [1 2 3])')
+--]=]
+check('((fn [op] (reduce op [1 2 3])) +)')
+
 
 
 --[=[
+each(pp.print, partition(4, range(12)))
+uit.each(pp.print, uit.partition(4, uit.range(12)))
+
+
+
 each(pp.print, scan(operator.add, 0, {2, 4, 6, 8}))
 each(pp.print, reductions(operator.add, {2, 4, 6, 8}))
 

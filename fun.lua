@@ -142,9 +142,10 @@ local each = function(fun, gen, param, state)
 end
 
 uit.each = function(fun, trip)
+    local state_x = trip[3] 
     repeat
-        trip[3] = call_if_not_empty(fun, trip[1](trip[2], trip[3]))
-    until trip[3] == nil
+        state_x = call_if_not_empty(fun, trip[1](trip[2], state_x))
+    until state_x == nil
 end
 
 --------------------------------------------------------------------------------
@@ -343,11 +344,11 @@ local tail = function(gen, param, state)
 end
 
 uit.tail = function(trip)
-    trip[3] = trip[1](trip[2], trip[3])
-    if trip[3] == nil then
+    local state_x = trip[1](trip[2], trip[3])
+    if state_x == nil then
         return uit.unify(nil_gen, nil, nil)
     end
-    return trip
+    return uit.unify(trip[1], trip[2], state_x)
 end
 
 
@@ -370,7 +371,7 @@ end
 local take_n = function(n, gen, param, state)
     assert(n >= 0, "invalid first argument to take_n")
     local gen_x, param_x, state_x = iter(gen, param, state)
-    return take_n_gen, {n, gen, param}, {0, state}
+    return take_n_gen, {n, gen_x, param_x}, {0, state_x}
 end
 
 uit.take_n = function(n, trip)
@@ -432,13 +433,14 @@ end
 
 uit.drop_n = function(n, trip)
     assert(n >= 0, "invalid first argument to drop_n")
+    local state_x = trip[3]
     for i=1,n,1 do
-        trip[3] = trip[1](trip[2], trip[3])
-        if trip[3] == nil then
+        state_x = trip[1](trip[2], state_x)
+        if state_x == nil then
             return uit.unify(nil_gen, nil, nil)
         end
     end
-    return trip
+    return uit.unify(trip[1], trip[2], state_x)
 end
 
 local drop_while_x = function(fun, state_x, ...)
@@ -500,6 +502,36 @@ end
 uit.split = function(n_or_fun, trip)
     return {uit.take(n_or_fun, trip),
             uit.drop(n_or_fun, trip)}
+end
+
+local partition_gen_x = function(i, n, gen_x, param_x, state_x)
+    if state_x == nil then
+        return nil
+    end
+    local elems = {}
+    repeat
+      state_x, elems[#elems + 1] = gen_x(param_x, state_x)
+    until(state_x == nil or #elems >= n)
+    if state_x == nil then return nil end
+    return {i, state_x}, elems
+end
+
+local partition_gen = function(param, state)
+    local n, gen_x, param_x = param[1], param[2], param[3]
+    local i, state_x = state[1], state[2]
+
+    return partition_gen_x(i + n, n, gen_x, param_x, state_x)
+end
+
+local partition = function(n, gen, param, state)
+    assert(n > 0, "invalid first argument to partition")
+    local gen_x, param_x, state_x = iter(gen, param, state)
+    return partition_gen, {n, gen_x, param_x}, {0, state_x}
+end
+
+uit.partition = function(n, trip)
+    assert(n > 0, "invalid first argument to partition")
+    return {partition_gen, {n, trip[1], trip[2]}, {0, trip[3]}}
 end
 
 --------------------------------------------------------------------------------
@@ -630,7 +662,7 @@ uit.grep = function(fun_or_regexp, trip)
     return uit.filter(fun, trip)
 end
 
-local partition = function(fun, gen, param, state)
+local segregate = function(fun, gen, param, state)
     local neg_fun = function(...)
         return not fun(...)
     end
@@ -639,7 +671,7 @@ local partition = function(fun, gen, param, state)
            {filter(neg_fun, gen_x, param_x, state_x)}
 end
 
-uit.partition = function(fun, trip)
+uit.segregate = function(fun, trip)
     local neg_fun = function(...)
         return not fun(...)
     end
@@ -714,11 +746,11 @@ uit.length = function(trip)
     if trip[1] == ipairs or trip[1] == string_gen then
         return #trip[2]
     end
-    local len = 0
+    local len, state_x = 0, trip[3]
     repeat
-        trip[3] = trip[1](trip[2], trip[3])
+        state_x = trip[1](trip[2], state_x)
         len = len + 1
-    until trip[3] == nil
+    until state_x == nil
     return len - 1
 end
 
@@ -1368,6 +1400,7 @@ local exports = {
     split = split,
     split_at = split, -- an alias
     span = split, -- an alias
+    partition = partition,
 
     ----------------------------------------------------------------------------
     -- Indexing
@@ -1387,7 +1420,7 @@ local exports = {
     filter = filter,
     remove_if = filter, -- an alias
     grep = grep,
-    partition = partition,
+    segregate = segregate,
 
     ----------------------------------------------------------------------------
     -- Reducing

@@ -133,7 +133,7 @@ local space = S('\t\v\f\n\r ,')^1
 -- Whitespace.
 local ws = token('WHITESPACE', space)
 local equals = P"="^0
-local open = C("[") * Cg(equals, "init") * C("[" * P"\n"^-1)
+local open = C("[") * Cg(equals, "init") * C("[") * P"\n"^-1
 local close = "]" * C(equals) * "]"
 local closeeq = Cmt(close * Cb("init"), function (s, i, a, b) return a == b end)
 local longstring0 = C((P(1) - closeeq)^0) * C(close) * Cp()
