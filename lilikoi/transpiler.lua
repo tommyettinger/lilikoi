@@ -6,24 +6,24 @@ local seed = require'lilikoi.seed'
 local grammar = require'lilikoi.grammar'
 
 local function transfer_helper(capt)
-  if capt[2] == "nil" then
-		return '"\1nil",'
-	elseif capt[2] == "true" then
-		return 'true,'
-	elseif capt[2] == "false" then
-		return 'false,'
+  if capt[3] == "nil" then
+		return '{"nil","nil",'..capt[2]..','..capt[4]..'},'
+	elseif capt[3] == "true" then
+		return '{"bool",true,'..capt[2]..','..capt[4]..'},'
+	elseif capt[3] == "false" then
+		return '{"bool",false,'..capt[2]..','..capt[4]..'},'
 	elseif capt[1] == 'STRING' then
-		return '"\2'.. string.gsub(capt[2], "([\n\"\'])", "\\%1") .. '",'
+		return '{"string","' .. string.gsub(capt[3], "([\n\"\'])", "\\%1") .. '",'..capt[2]..','..capt[4]..'},'
 	elseif capt[1] == 'LONGSTRING' then
-		return capt[2] .. '\2'.. capt[3] .. ','
+		return '{"string",' .. capt[3] .. capt[2] .. ',' .. capt[4] ..'},' --		return '"string",' .. capt[2] .. capt[3] .. ','
 	elseif capt[1] == 'NUMBER' then
-		return capt[2] .. ","
+		return '{"number",' .. capt[3] .. ','..capt[2]..','..capt[4]..'},'
 	elseif capt[1] == 'COMMENT' then
 		return '--' .. capt[2] .. '\n'
 	elseif capt[1] == 'KEYWORD' then
-		return '"\5' .. capt[2] .. '",'
+		return '{"keyword","' .. capt[3] .. '",'..capt[2]..','..capt[4]..'},'
 	elseif capt[1] == 'IDENTIFIER' then
-    return '"\1' .. capt[2] .. '",'
+    return '{"id","' .. capt[3] .. '",'..capt[2]..','..capt[4]..'},'
   else
     return false
   end
@@ -31,7 +31,7 @@ local function transfer_helper(capt)
  
 ---
 -- transfers all the elements in a lexed/parsed AST to a code string
-local function transfer(capt, position)
+local function transfer(capt, position, inner_start, inner_end)
   local state = {}
   local pos = position or 0
   while pos < #capt do
@@ -43,49 +43,49 @@ local function transfer(capt, position)
     else
       -- we have encountered a non-simple form
       if term[1] == 'CHAIN' then
-        state[#state + 1] = '{"\1access",'
-        state[#state + 1] = transfer(term, 1)        
+        state[#state + 1] = '{"macro",{{"id","access",' .. term[1] .. ',' .. term[4] .. '}'
+        state[#state + 1] = transfer(term[3], 0, term[1], term[4])
       elseif term[1] == 'PAREN' then
-        if term[2] == '(' then
-          state[#state + 1] = '{'
-          state[#state + 1] = transfer(term, 2)
+        if term[3] == '(' then
+          state[#state + 1] = '{"list",{'
+          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
         else
-          state[#state + 1] = '{"\1lambda",'
-          state[#state + 1] = transfer(term, 2)
+          state[#state + 1] = '{"macro",{{"id","lambda",' .. term[1] .. ',' .. term[4] .. '}'
+          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
         end
       elseif term[1] == 'BRACKET' then
-        state[#state + 1] = '{"\1vector",'
-        state[#state + 1] = transfer(term, 2)
+        state[#state + 1] = '{"vector",{'
+        state[#state + 1] = transfer(term[3], 0, term[1], term[4])
       elseif term[1] == 'BRACE' then
         if term[2] == '{' then
-          state[#state + 1] = '{"\1dict",'
-          state[#state + 1] = transfer(term, 2)
+          state[#state + 1] = '{"dict",{'
+          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
         else
-          state[#state + 1] = '{"\1set",'
-          state[#state + 1] = transfer(term, 2)
+          state[#state + 1] = '{"set",{'
+          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
         end
       elseif term[1] == 'META' then
-          state[#state + 1] = '{"\1attach-meta",'
-          state[#state + 1] = transfer(term, 1)
+          state[#state + 1] = '{"macro",{{"id","attach-meta",' .. term[1] .. ',' .. term[4] .. '}'
+          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
       elseif term[1] == 'PREFIX' then
         if term[2] == "'" then
-          state[#state + 1] = '{"\1quote",'
-          state[#state + 1] = transfer(term, 2)
+          state[#state + 1] = '{"macro",{{"id","quote",' .. term[1] .. ',' .. term[4] .. '}'
+          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
         elseif term[2] == '$' then
-          state[#state + 1] = '{"\1auto-gensym",'
-          state[#state + 1] = transfer(term, 2)
+          state[#state + 1] = '{"macro",{{"id","auto-gensym",' .. term[1] .. ',' .. term[4] .. '}'
+          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
         elseif term[2] == '~' then
-          state[#state + 1] = '{"\1unquote",'
-          state[#state + 1] = transfer(term, 2)
+          state[#state + 1] = '{"unquote",{{"id","unquote",' .. term[1] .. ',' .. term[4] .. '}'
+          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
         elseif term[2] == '`' then
-          state[#state + 1] = '{"\1syntax-quote",'
-          state[#state + 1] = transfer(term, 2)
+          state[#state + 1] = '{"syntax",{{"id","syntax-quote",' .. term[1] .. ',' .. term[4] .. '}'
+          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
         end
       end
     end
   end
   if position then
-    return table.concat(state) .. '},'
+    return table.concat(state) .. '}'.. inner_start .. ',' .. inner_end ..'},'
   else
     return table.concat(state)
   end
@@ -93,8 +93,8 @@ end
 
 function seed.transpile(llk, retain)
 	local lexed = grammar.lex(llk)
-	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run({"\1do",'
-  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run_in({"\1do",' end
+	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run({{"id","do",0,0},'
+  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run_in({{"id","do",0,0},' end
 	lu = lu .. transfer(lexed) .. '})'
 	return lu
 end

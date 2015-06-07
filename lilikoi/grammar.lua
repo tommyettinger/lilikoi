@@ -80,7 +80,7 @@ local function token(name, patt)
   if name == 'WHITESPACE' then
     return patt  -- do not capture whitespace.
   end
-  return Ct(Cc(name) * C(patt) * Cc(nil))
+  return Ct(Cc(name) * Cp() * C(patt) * Cp())
 end
 M.token = token
 ---
@@ -133,16 +133,25 @@ local space = S('\t\v\f\n\r ,')^1
 -- Whitespace.
 local ws = token('WHITESPACE', space)
 local equals = P"="^0
+
+--[==[
 local open = C("[") * Cg(equals, "init") * C("[") * P"\n"^-1
 local close = "]" * C(equals) * "]"
 local closeeq = Cmt(close * Cb("init"), function (s, i, a, b) return a == b end)
-local longstring0 = C((P(1) - closeeq)^0) * C(close) * Cp()
+local longstring0 = C((P(1) - closeeq)^0) * C(close) * Cc(nil)
 local longstring = Cmt(open * longstring0, function(s, i, brace1, brace2, st, close_brace, mid)
     return true, brace1 .. mid .. brace2, st .. close_brace
   end)
+--]==]
+
+local open = "[" * Cg(equals, "init") * "[" * P"\n"^-1
+local close = "]" * C(equals) * "]"
+local closeeq = Cmt(close * Cb("init"), function (s, i, a, b) return a == b end)
+local longstring = open * (P(1) - closeeq)^0 * close / 1
+
 -- Comments.
 local line_comment = ';' * C(patterns.nonnewline^0)
-local block_comment = ';;' * (longstring / "%0")
+local block_comment = ';;' * longstring
 local comment = Ct(Cc('COMMENT') * ((block_comment + line_comment) / 1) * Cc(nil))
 --('COMMENT', block_comment + line_comment)
 
@@ -152,8 +161,8 @@ local comment = Ct(Cc('COMMENT') * ((block_comment + line_comment) / 1) * Cc(nil
 -- Strings.
 --local sq_str = delimited_range("'")
 local dq_str = delimited_range('"')
-local str = Ct(Cc('STRING') * dq_str * Cc(nil))
-local longstr = Ct(Cc('LONGSTRING') * (P'#' * longstring) * Cc(nil))
+local str = Ct(Cc('STRING') * Cp() * dq_str * Cp())
+local longstr = Ct(Cc('LONGSTRING') * Cp() * (P'#' * longstring) * Cp())
 -- Numbers.
 local lj_int = S('-')^-1 * ((patterns.dec_num + patterns.hex_num) * (P('ULL') + P('ull') + P('LL') + P('ll'))^-1)
 local number = token('NUMBER', patterns.float + lj_int)
@@ -164,18 +173,18 @@ local un_ids = (patterns.cntrl + S(" \"',;)(][}{#^.`~\\$"))^1
 local ids = 1 - un_ids
 
 local identifier = token('IDENTIFIER', ids^1)
-local chain = Ct(Cc('CHAIN') * (identifier * P".")^1 * identifier * Cc(nil))
+local chain = Ct(Cc('CHAIN') * Cp() * (identifier * P".")^1 * identifier * Cp())
 local keyword = token('KEYWORD', S(':') * ids^1)
 
 local form = P{"single";
   single = (longstr + str + number +  keyword + chain + identifier +
     V"dis" + V"met" + V"pref" + V"paren" + V"brace" + V"bracket") * (ws + comment)^0,
-  paren = Ct(Cc('PAREN') * C(P'#(' + P'(') * V"single"^0 *  P')' * Cc(nil)),
-  brace = Ct(Cc('BRACE') * C(P'#{' + P'{') * V"single"^0 *  P'}' * Cc(nil)),
-  bracket = Ct(Cc('BRACKET') * C(P'[') * V"single"^0 *  P']' * Cc(nil)),
-  met = Ct(Cc('META') * P'^' * V"single" * V"single" * Cc(nil)),
+  paren = Ct(Cc('PAREN') * Cp() * C(P'#(' + P'(') * Ct(V"single"^0) *  P')' * Cp()),
+  brace = Ct(Cc('BRACE') * Cp() * C(P'#{' + P'{') * Ct(V"single"^0) *  P'}' * Cp()),
+  bracket = Ct(Cc('BRACKET') * Cp() * C(P'[') * Ct(V"single"^0) *  P']' * Cp()),
+  met = Ct(Cc('META') * Cp() * P'^' * Ct(V"single" * V"single") * Cp()),
   dis = Cmt(P'#_' * V"single", function(s, i, ...) return true end),
-  pref = Ct(Cc('PREFIX') * C(S"`~'$") * V"single" * Cc(nil))
+  pref = Ct(Cc('PREFIX') * Cp() *  Ct(C(S"`~'$") * V"single") * Cp())
 }
 
 lexer._RULES = {

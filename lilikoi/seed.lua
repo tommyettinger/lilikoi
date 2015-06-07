@@ -82,9 +82,8 @@ end
 seed.get = get_item
 
 local function kw_get(kw, tab)
-  local k = string.sub(kw, 2)
   assert(type(tab) == 'table', "Attempt to lookup keyword:\n" .. pp.format(k) .. "\n  in non-table value:\n" .. pp.format(tab))
-  return rawget(tab, k)
+  return rawget(tab, kw)
 end
 
 seed["kw-get"] = kw_get
@@ -92,7 +91,7 @@ seed["kw-get"] = kw_get
 local function lookup(name)
 	for revi=#seed.__scopes, 1, -1 do
 		if seed.__scopes[revi][name] ~= nil then
-			return seed.__scopes[revi][name], name
+			return seed.__scopes[revi][name]
 		end
 	end
   
@@ -105,7 +104,7 @@ local function lookup(name)
   if seed[name] ~= nil then
     return seed[name]
   end
-	return nil, name
+	return nil
 end
 
 seed.lookup = lookup
@@ -143,33 +142,29 @@ seed["quoted?"] = is_quoted
 seed["keyword?"] = is_keyword
 seed["string?"] = is_string
 
-local function cleanup(name)
-  if type(name) == 'string' and string.match(name, "^[\1\2\5\6]") then
-    return string.sub(name, 2)
-  end
+local function cleanup(t, name)
   return name
 end
 
-local function identify(name)
-  if is_identifier(name) then
-    local nm = string.sub(name, 2)
-    return lookup(nm)
+local function identify(t, name)
+  if t == 'id' then
+    return lookup(name), name
   end
-  return nil, cleanup(name)
+  return nil, name
 end
 
-local function quote_id(name)
-  if is_identifier(name) then
-    return "\6" .. string.sub(name, 2)
+local function quote_id(t, name)
+  if t == 'id' then
+    return 'quote', name
   end
-  return name
+  return t, name
 end
 
-local function dequote(name)
-  if is_quoted(name) then
-    return "\1" .. string.sub(name, 2)
+local function dequote(t, name)
+  if t == 'quote' then
+    return 'id',  name
   end
-  return name
+  return t, name
 end
 
 seed.cleanup = cleanup
