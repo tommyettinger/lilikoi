@@ -3,7 +3,7 @@ local fp = require'fun'
 local ops = fp.op
 
 local function opdef(oper, name)
-	seed[name] = seed._make_fn({[2]=oper, [-1]=function(x, y, ...) return fp.reduce(oper, {x, y, ...}) end}, name)
+	seed[name] = {'lua', seed._make_fn({[2]=oper, [-1]=function(x, y, ...) return fp.reduce(oper, {x, y, ...}) end}, name)}
 end
 opdef(ops.lt, '<')
 opdef(ops.le, '<=')

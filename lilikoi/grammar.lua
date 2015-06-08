@@ -151,7 +151,7 @@ local longstring = open * (P(1) - closeeq)^0 * close / 1
 
 -- Comments.
 local line_comment = ';' * C(patterns.nonnewline^0)
-local block_comment = ';;' * longstring
+local block_comment = ';;' * C(longstring)
 local comment = Ct(Cc('COMMENT') * ((block_comment + line_comment) / 1) * Cc(nil))
 --('COMMENT', block_comment + line_comment)
 
@@ -162,7 +162,7 @@ local comment = Ct(Cc('COMMENT') * ((block_comment + line_comment) / 1) * Cc(nil
 --local sq_str = delimited_range("'")
 local dq_str = delimited_range('"')
 local str = Ct(Cc('STRING') * Cp() * dq_str * Cp())
-local longstr = Ct(Cc('LONGSTRING') * Cp() * (P'#' * longstring) * Cp())
+local longstr = Ct(Cc('LONGSTRING') * Cp() * (P'#' * C(longstring)) * Cp())
 -- Numbers.
 local lj_int = S('-')^-1 * ((patterns.dec_num + patterns.hex_num) * (P('ULL') + P('ull') + P('LL') + P('ll'))^-1)
 local number = token('NUMBER', patterns.float + lj_int)

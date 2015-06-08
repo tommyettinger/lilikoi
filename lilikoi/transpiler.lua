@@ -15,7 +15,7 @@ local function transfer_helper(capt)
 	elseif capt[1] == 'STRING' then
 		return '{"string","' .. string.gsub(capt[3], "([\n\"\'])", "\\%1") .. '",'..capt[2]..','..capt[4]..'},'
 	elseif capt[1] == 'LONGSTRING' then
-		return '{"string",' .. capt[3] .. capt[2] .. ',' .. capt[4] ..'},' --		return '"string",' .. capt[2] .. capt[3] .. ','
+		return '{"string",' .. capt[3] .. ',' .. capt[2] .. ',' .. capt[5] ..'},' --		return '"string",' .. capt[2] .. capt[3] .. ','
 	elseif capt[1] == 'NUMBER' then
 		return '{"number",' .. capt[3] .. ','..capt[2]..','..capt[4]..'},'
 	elseif capt[1] == 'COMMENT' then

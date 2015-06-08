@@ -125,21 +125,20 @@ local function check(llk)
   pp(lil.translate(llk))
 	pp(lil.run(llk))
 end
-
+--[=[
 check("1")
 check('"abc"')
 check('#[[abc\ndef]]')
 check('"ab\ncd" 2')
 check('()')
 check('(+ 1 2)')
+--]=]
+check("(+ ;;[[commentary\nYou'd think this should work, right?]] 1 2 3)")
 check('(+ 1.1 2.2 3.3 4.4)')
 check('[1]')
 check('(+ 1.1 2.2 3.3 4.4 (* 3 3))')
 check('(reduce + [1 2 3])')
 check('(reduce + [1 2 3 math.pi])')
-
-
-check("(reduce + ;;[[commentary\nYou'd think this should work, right?]] [1 2 3])")
 
 
 check("(reduce + '(1 2 3))")
