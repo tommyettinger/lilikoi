@@ -173,7 +173,7 @@ local un_ids = (patterns.cntrl + S(" \"',;)(][}{#^.`~\\$"))^1
 local ids = 1 - un_ids
 
 local identifier = token('IDENTIFIER', ids^1)
-local chain = Ct(Cc('CHAIN') * Cp() * (identifier * P".")^1 * identifier * Cp())
+local chain = Ct(Cc('CHAIN') * Cp() * Ct((identifier * P".")^1 * identifier) * Cp())
 local keyword = token('KEYWORD', S(':') * ids^1)
 
 local form = P{"single";

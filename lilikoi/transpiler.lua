@@ -43,49 +43,49 @@ local function transfer(capt, position, inner_start, inner_end)
     else
       -- we have encountered a non-simple form
       if term[1] == 'CHAIN' then
-        state[#state + 1] = '{"macro",{{"id","access",' .. term[1] .. ',' .. term[4] .. '}'
-        state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+        state[#state + 1] = '{"macro",{{"id","access",' .. term[2] .. ',' .. term[5] .. '},'
+        state[#state + 1] = transfer(term[4], 0, term[2], term[5])
       elseif term[1] == 'PAREN' then
         if term[3] == '(' then
           state[#state + 1] = '{"list",{'
-          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+          state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         else
-          state[#state + 1] = '{"macro",{{"id","lambda",' .. term[1] .. ',' .. term[4] .. '}'
-          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+          state[#state + 1] = '{"macro",{{"id","lambda",' .. term[2] .. ',' .. term[5] .. '},'
+          state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         end
       elseif term[1] == 'BRACKET' then
         state[#state + 1] = '{"vector",{'
-        state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+        state[#state + 1] = transfer(term[4], 0, term[2], term[5])
       elseif term[1] == 'BRACE' then
         if term[2] == '{' then
           state[#state + 1] = '{"dict",{'
-          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+          state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         else
           state[#state + 1] = '{"set",{'
-          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+          state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         end
       elseif term[1] == 'META' then
-          state[#state + 1] = '{"macro",{{"id","attach-meta",' .. term[1] .. ',' .. term[4] .. '}'
-          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+          state[#state + 1] = '{"macro",{{"id","attach-meta",' .. term[2] .. ',' .. term[5] .. '},'
+          state[#state + 1] = transfer(term[4], 0, term[2], term[5])
       elseif term[1] == 'PREFIX' then
         if term[2] == "'" then
-          state[#state + 1] = '{"macro",{{"id","quote",' .. term[1] .. ',' .. term[4] .. '}'
-          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+          state[#state + 1] = '{"macro",{{"id","quote",' .. term[2] .. ',' .. term[5] .. '},'
+          state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         elseif term[2] == '$' then
-          state[#state + 1] = '{"macro",{{"id","auto-gensym",' .. term[1] .. ',' .. term[4] .. '}'
-          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+          state[#state + 1] = '{"macro",{{"id","auto-gensym",' .. term[2] .. ',' .. term[5] .. '},'
+          state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         elseif term[2] == '~' then
-          state[#state + 1] = '{"unquote",{{"id","unquote",' .. term[1] .. ',' .. term[4] .. '}'
-          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+          state[#state + 1] = '{"unquote",{{"id","unquote",' .. term[2] .. ',' .. term[5] .. '},'
+          state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         elseif term[2] == '`' then
-          state[#state + 1] = '{"syntax",{{"id","syntax-quote",' .. term[1] .. ',' .. term[4] .. '}'
-          state[#state + 1] = transfer(term[3], 0, term[1], term[4])
+          state[#state + 1] = '{"syntax",{{"id","syntax-quote",' .. term[2] .. ',' .. term[5] .. '},'
+          state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         end
       end
     end
   end
   if position then
-    return table.concat(state) .. '}'.. inner_start .. ',' .. inner_end ..'},'
+    return table.concat(state) .. '},'.. inner_start .. ',' .. inner_end ..'},'
   else
     return table.concat(state)
   end

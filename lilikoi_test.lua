@@ -121,11 +121,11 @@ end
 --]=]
 local function check(llk)
 	print(llk)
-	pp(lil.translate(llk))
+  pp(grammar.lex(llk))
+  pp(lil.translate(llk))
 	pp(lil.run(llk))
 end
 
---[=[
 check("1")
 check('"abc"')
 check('#[[abc\ndef]]')

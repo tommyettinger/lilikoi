@@ -67,11 +67,38 @@ local function make_fn(ops, name, macro)
 	return setmetatable(ops, directmeta)
 end
 
-seed.make_fn = make_fn
+seed._make_fn = make_fn
+seed.make_fn = {"lua", make_fn}
 
 local function defunction(fun, name)
   if type(fun) ~= 'function' then return fun end
   return make_fn({[-1]=fun}, name or "anonymous")
+end
+
+local function strip_args(...)
+  local args, len = {}, select('#', ...)
+  for i = 1,len do
+    local a = select(i, ...)
+    if a[1] == 'nil' or
+       a[1] == 'bool' or
+       a[1] == 'number' or
+       a[1] == 'string' or
+       a[1] == 'keyword' or
+       a[1] == 'id' or
+       a[1] == 'fn' or
+       a[1] == 'lua' then
+         args[i] = a[2]
+    else
+      args[i] = {strip_args(unpack(a[2]))}
+    end
+  end
+  return unpack(args)
+end
+
+local function strip_wrap(fun)
+  return function(...)
+    return fun(strip_args(...))
+  end
 end
 
 local function get_item(tab, key)
@@ -79,106 +106,108 @@ local function get_item(tab, key)
   return rawget(tab, key)
 end
 
-seed.get = get_item
+seed.get = {"lua", get_item}
 
 local function kw_get(kw, tab)
   assert(type(tab) == 'table', "Attempt to lookup keyword:\n" .. pp.format(k) .. "\n  in non-table value:\n" .. pp.format(tab))
   return rawget(tab, kw)
 end
 
-seed["kw-get"] = kw_get
+seed["kw-get"] = {"lua", kw_get}
 
 local function lookup(name)
 	for revi=#seed.__scopes, 1, -1 do
 		if seed.__scopes[revi][name] ~= nil then
-			return seed.__scopes[revi][name]
+			local ret = seed.__scopes[revi][name]
+      if type(ret) == 'table' then return ret end
+      return {'lua',ret}
 		end
 	end
   
 	if seed.__namespace then
 		if seed.__namespace[name] ~= nil then
-      return seed.__namespace[name]
+      local ret = seed.__namespace[name]
+      if type(ret) == 'table' then return ret end
+      return {'lua',ret}
     end
   end 
   
   if seed[name] ~= nil then
-    return seed[name]
+    local ret = seed[name]
+    if type(ret) == 'table' then return ret end
+    return {'lua',ret}
   end
 	return nil
 end
 
-seed.lookup = lookup
+seed.lookup = {"lua", lookup}
 
-local function is_identifier(name)
-  if type(name) == 'string' and #name > 1 then
-    return string.sub(name, 1, 1) == "\1"
+local function is_identifier(t)
+  if type(t) == 'table' and t[1] == 'id' then
+    return true
   end
   return false
 end
 
-local function is_quoted(name)
-  if type(name) == 'string' and #name > 1 then
-    return string.sub(name, 1, 1) == "\6"
+local function is_quoted(t)
+  if type(t) == 'table' and t[1] == 'quote' then
+    return true
   end
   return false
 end
 
-local function is_keyword(name)
-  if type(name) == 'string' and #name > 1 then
-    return string.sub(name, 1, 1) == "\5"
+
+local function is_keyword(t)
+  if type(t) == 'table' and t[1] == 'keyword' then
+    return true
   end
   return false
 end
 
-local function is_string(name)
-  if type(name) == 'string' and #name > 0 then
-    return string.sub(name, 1, 1) == "\2"
+local function is_string(t)
+  if type(t) == 'string' or (type(t) == 'table' and t[1] == 'string') then
+    return true
   end
   return false
 end
 
-seed["identifier?"] = is_identifier
-seed["quoted?"] = is_quoted
-seed["keyword?"] = is_keyword
-seed["string?"] = is_string
+seed["identifier?"] = {"lua", is_identifier}
+seed["quoted?"] = {"lua", is_quoted}
+seed["keyword?"] = {"lua", is_keyword}
+seed["string?"] = {"lua", is_string}
 
-local function cleanup(t, name)
-  return name
+local function identify(t)
+  if t[1] == 'id' then
+    return lookup(t[2])
+  end
+  return nil
 end
 
-local function identify(t, name)
-  if t == 'id' then
-    return lookup(name), name
+local function quote_id(t)
+  if t[1] == 'id' then
+    return {'quote', t[2], t[3], t[4]}
   end
-  return nil, name
-end
-
-local function quote_id(t, name)
-  if t == 'id' then
-    return 'quote', name
-  end
-  return t, name
+  return t
 end
 
 local function dequote(t, name)
   if t == 'quote' then
-    return 'id',  name
+    return {'id', t[2], t[3], t[4]}
   end
-  return t, name
+  return t
 end
 
-seed.cleanup = cleanup
-seed.identify = identify
-seed["quote-id"] = quote_id
-seed.dequote = dequote
+seed.identify = {"lua", identify}
+seed["quote-id"] = {"lua", quote_id}
+seed.dequote = {"lua", dequote}
 
 -- reads a sequence of generated sexps and data from
 -- the specified codeseq, which should already have a program,
 -- and steps through it until it has read a single form.
-local function eval(codeseq, quotelevel)
+local function eval(codeseq, quotelevel, kind)
   if type(codeseq) ~= 'table' then return codeseq end
   quotelevel = quotelevel or 0
-  local codify = quotelevel < 0
+  local codify = kind == 'call'
   if #codeseq == 0 then return {} end
   
   local arglist = {}
@@ -187,9 +216,13 @@ local function eval(codeseq, quotelevel)
     for i=1, #codeseq do
       local ql = quotelevel
       term = codeseq[i]
-      if arglist[i-1] == "\6unquote" then ql = ql - 1 end
-      if type(term) == 'table' then 
-        arglist[i] = eval(term, ql)
+      local tv = term[2]
+      if type(arglist[i-1]) == 'table' and arglist[i-1][1] == 'quote' and
+          arglist[i-1][2] == "unquote" then
+        ql = ql - 1
+      end
+      if type(tv) == 'table' then 
+        arglist[i] = eval(tv, ql, term[1])
       else
         if ql == 0 then
           arglist[i] = (identify(term)) or term
@@ -200,68 +233,69 @@ local function eval(codeseq, quotelevel)
     end
     return arglist
   else
-    local prime, op, nm = codeseq[1], nil, nil
-    if type(prime) == 'table' then
-      op = eval(prime, quotelevel)
-      nm = op.name
+    local prime, op, nm
+    local special_open = true
+    if kind == 'vector' then
+      op, nm = seed.vector, 'vector'
+      special_open = false
     else
-      if codify then
-        op, nm = identify(dequote(prime))
-      else 
-        op, nm = identify(prime)
-      end
-      op = defunction(op, nm)
-    end
-    if type(op) ~= 'table' then
-      if is_keyword(op) then
-        term = codeseq[2]
-        if type(term) == 'table' then 
-          arglist[1] = eval(term, quotelevel)
-        else
-          arglist[1], nm = identify(term)
-          if arglist[1] == nil then arglist[1] = term end
-        end
-        return kw_get(op, arglist[1])
+      prime = codeseq[1]
+      if type(prime[2]) == 'table' then
+        op = eval(prime[2], quotelevel, prime[1])
+        nm = op.name
       else
-        error("Tried to call this invalid value like a fn:\n" .. pp.format(codeseq[1]))
+        if codify then
+          op, nm = identify(dequote(prime))
+        else 
+          op, nm = identify(prime)
+        end
+        op = defunction(op, nm)
       end
+    end
+    if special_open and op and is_keyword(op) then
+      term = codeseq[2]
+      local tv = term[2]
+      if type(tv) == 'table' then 
+        arglist[1] = eval(tv, quotelevel, term[1])
+      else
+        arglist[1], nm = identify(term)
+        if arglist[1] == nil then arglist[1] = term end
+      end
+      return kw_get(op, arglist[1][2])
     end
     
     if op.macro then
-      for i=2, #codeseq do
+      for i=(special_open and 2 or 1), #codeseq do
         term = codeseq[i]
-        if type(term) == 'table' then 
-          arglist[i-1] = eval(term, quotelevel + 1)
+        local tv = term[2]
+        if type(tv) == 'table' then 
+          arglist[i-(special_open and 1 or 0)] = eval(tv, quotelevel + 1, term[1])
         else
-          arglist[i-1] = quote_id(term)
+          arglist[i-(special_open and 1 or 0)] = quote_id(term)
         end
       end
-      return op(unpack(arglist))
-      --[[
-      
-      if op.macro == 'quote' then return op(unpack(arglist)) end
-      return seed.minirun(op(unpack(arglist)))
-      --]]
+      return op[2](unpack(arglist))
     end
     
-    for i=2, #codeseq do
+    for i=(special_open and 2 or 1), #codeseq do
       term = codeseq[i]
-      if type(term) == 'table' then 
-        arglist[i-1] = eval(term, quotelevel)
+      local tv = term[2]
+      if type(tv) == 'table' then 
+        arglist[i-(special_open and 1 or 0)] = eval(tv, quotelevel, term[1])
       else
         if codify then
-          arglist[i-1], nm = identify(dequote(term))
+          arglist[i-(special_open and 1 or 0)], nm = identify(dequote(term))
         else
-          arglist[i-1], nm = identify(term)
+          arglist[i-(special_open and 1 or 0)], nm = identify(term)
         end
-        if arglist[i-1] == nil then arglist[i-1] = term end
+        if arglist[i-(special_open and 1 or 0)] == nil then arglist[i-1] = tv end
       end
     end
-    return op(unpack(arglist))
+    return op[2](unpack(arglist))
   end
 end
 
-seed.eval = eval
+seed.eval = {'lua',eval}
 
 -- a way to run a program that was not generated by the transpiler,
 -- ensuring the body of the program is wrapped in a call to do so
@@ -270,10 +304,10 @@ seed.eval = eval
 -- the evaluation to be carried out at as if it is inside a macro
 -- (for positive values), or if the argument is negative, to unquote any
 -- identifiers encountered unless something else changed the quote level.
-function seed.minirun(program, quoting)
-  return eval({"\1do",program}, quoting)
+local function minirun(program, quoting)
+  return eval({{'id','do'},program}, quoting)
 end
-
+seed.minirun = {"lua", minirun}
 -- the entry point for a program. Clears any possible lingering state,
 -- then returns any number of args (ideally 1, if the program
 -- completed with one return value) based on evaluating a codeseq.
@@ -290,13 +324,13 @@ function seed.run_in(program)
   return eval(program)
 end
 
-seed["nil"] = nil
+seed["nil"] = {"nil", nil}
 
-local function def(ops, name, macro)
-	seed[name] = make_fn(ops, name, macro)
+local function defn(ops, name, macro)
+	seed[name] = {"fn", make_fn(ops, name, macro)}
 end
 
-seed._def = def
+seed._defn = defn
 
 local function count(t)
 	if type(t) == 'table' then
@@ -308,7 +342,7 @@ local function count(t)
 	end
 end
 
-def({[1]=count}, "count")
+defn({[1]=strip_wrap(count)}, "count")
 
 local function _do(...)
   local res = nil
@@ -318,57 +352,58 @@ local function _do(...)
   return res
 end
 
-def({[-1]=_do}, "do")
+defn({[-1]=_do}, "do")
 
 local function seq(t)
   return uit.iter(t, nil, nil)
 end
 
-def({[1]=seq}, "seq")
+defn({[1]=strip_wrap(seq)}, "seq")
 
 
 local function access(top, ...)
-  local res = lookup(cleanup(top))
+  local res = lookup(top[2])
   for i=1, select('#', ...) do
-    res = res[cleanup(select(i, ...))]
+    res = res[select(i, ...)[2]]
     if res == nil then return res end
   end
   return res
 end
 
-def({[-1]=access}, "access", true)
+defn({[-1]=access}, "access", true)
 
 local function vector(...)
   return {...}
 end
 
-def({[-1]=vector}, "vector")
+defn({[-1]=vector}, "vector")
 
-def({[2]=function(f, coll) return uit.reduce(f, seq(coll)) end, 
-     [3]=function(f, start, coll) return uit.foldl(f, start, seq(coll)) end }, "reduce")
+defn({[2]=strip_wrap(function(f, coll) return uit.reduce(f, seq(coll)) end), 
+     [3]=strip_wrap(function(f, start, coll) return uit.foldl(f, start, seq(coll)) end) }, "reduce")
 
-def({[2]=function(f, coll) return uit.reductions(f, seq(coll)) end, 
-     [3]=function(f, start, coll) return uit.scan(f, start, seq(coll)) end }, "reductions")
+defn({[2]=strip_wrap(function(f, coll) return uit.reductions(f, seq(coll)) end), 
+     [3]=strip_wrap(function(f, start, coll) return uit.scan(f, start, seq(coll)) end)}, "reductions")
 
 local function quote(term)
   return term
 end
 
-def({[1]=quote}, "quote", "quote")
-
+defn({[1]=quote}, "quote", "quote")
+-- (fn [[a [b c]]] ...)
+-- [a [b c]]
 local function destructure(ks, coll)
-  if type(ks) ~= 'table' then
-    seed.__scopes[#seed.__scopes][cleanup(ks)] = coll
+  if type(ks[2]) ~= 'table' then
+    seed.__scopes[#seed.__scopes][ks[2]] = coll
     return nil
   end
-  for i=1, #ks do
-    destructure(ks[i], coll[i])
+  for i=1, #ks[2] do
+    destructure(ks[2][i], coll[2][i])
   end
 end
 
 local function bind_once_(k, v)
-  if type(k) ~= 'table' then
-    seed.__scopes[#seed.__scopes][cleanup(k)] = v
+  if type(k[2]) ~= 'table' then
+    seed.__scopes[#seed.__scopes][k[2]] = v
     return v
   end
   destructure(k, v)
@@ -376,67 +411,84 @@ local function bind_once_(k, v)
 end
 
 -- meant to be called at runtime, not on quoted forms
-local function bind_all_(argnames, argvals)
+local function bind_all_(argnames, argvals, arity)
+  if arity == -1 then
+    local used_names = uit.take_while(function(id) return id[2] ~= '&' end, seq(argnames))
+    local used_len = uit.length(used_names)
+    uit.each(bind_once_, uit.zip(used_names, uit.take_n(used_len, seq(argvals))))
+    if argnames[used_len + 2] then
+      bind_once_(argnames[used_len + 2], {'vector', uit.totable(uit.drop_n(used_len, seq(argvals)))})
+    end
+  end
   uit.each(bind_once_, uit.zip(seq(argnames), seq(argvals)))
 end
 
-local function fn_(name, argseq, argnum, ...)
-  local is_variadic = argnum > 1 and uit.nth(argnum - 1, argseq) == '\6&'
+local function fn_(name, arglist, argnum, ...)
+  local is_variadic = false
+  if argnum > 1 then
+    local s2l = arglist[argnum - 1]
+    if type(s2l) == 'table' and s2l[1] == 'quote' and s2l[2] == '&' then
+      is_variadic = true
+    end
+  end
   local arity = is_variadic and -1 or argnum
-  local ft = {"\1do", ...}
+  local ft = {{'id','do'}, ...}
   return make_fn({[arity]=
       function(...)
         seed.__scopes[#seed.__scopes + 1] = {}
-        bind_all_(argseq, {...})
-        return seed.minirun(ft, -1)
+        bind_all_(arglist, {...}, arity)
+        return minirun(ft, 0, "call")
       end}, name)
 end
 local function choose_fn_(name, ...)
   local optab = {}
   for i=1, select('#', ...) do
-    local current = {select(i, ...)}
-    local arglist = current[1]
-    local argseq, argnum = uit.tail(seq(arglist)), #arglist - 1
+    local current = (select(i, ...))[2]
+    local arglist = current[1][2]
+    local argnum = #arglist
     
-    local is_variadic = argnum > 1 and uit.nth(argnum - 1, argseq) == '\6&'
+    local is_variadic = false
+    if argnum > 1 then
+      local s2l = arglist[argnum - 1]
+      if type(s2l) == 'table' and s2l[1] == 'quote' and s2l[2] == '&' then
+        is_variadic = true
+      end
+    end
     local arity = is_variadic and -1 or argnum
-    local ft = table.remove(current, 1)
+    table.remove(current, 1)
+    local ft = current
     optab[arity]=
     function(...)
       seed.__scopes[#seed.__scopes + 1] = {}
-      bind_all_(argseq, {...})
-      return seed.minirun(ft, -1)
+      bind_all_(arglist, {...}, arity)
+      return minirun(ft, 0, "call")
     end
   end
   return make_fn(optab, name)
 end
 
 local function fn(...)
-  local nm = "anonymous_fn"
+  local nm = 'anonymous_fn'
   local arglist = select(1, ...)
-  if type(arglist) == 'table' then
-    if arglist[1] == "\6vector" then
-      return fn_(nm, uit.tail(seq(arglist)), #arglist - 1, select(2, ...))
-    elseif type(arglist[1] == 'table') then
-      -- multiple arglists and bodies
-      return choose_fn_(nm, ...)
-    end
-  else
-    nm = cleanup(arglist)
+  if arglist[1] == 'vector' then
+    return {"fn", fn_(nm, arglist[2], #arglist[2], select(2, ...))}
+  elseif arglist[1] == 'string' then
+    nm = arglist[2]
     arglist = select(2, ...)
-    if type(arglist) == 'table' then
-      if arglist[1] == "\6vector" then
-        return fn_(nm, uit.tail(seq(arglist)), #arglist - 1, select(3, ...))
-      elseif type(arglist[1] == 'table') then
-        -- multiple arglists and bodies
-        return choose_fn_(nm, select(2, ...))
-      end
+    if arglist[1] == 'vector' then
+      return {"fn", fn_(nm, arglist[2], #arglist[2], select(3, ...))}
+    elseif type(arglist[1] == 'list') then
+      -- multiple arglists and bodies
+      return {"fn", choose_fn_(nm, select(2, ...))}
     end
+  elseif type(arglist[1] == 'list') then
+    -- multiple arglists and bodies
+    return {"fn", choose_fn_(nm, ...)}
   end
   error("Declaring this fn failed because it does not match the expected structure:\n" .. pp.format({...}))
 end
 
-def({[-1]=fn}, "fn", true)
+defn({[-1]=fn}, "fn", true)
 
 --[[
 local function lambda(args)
