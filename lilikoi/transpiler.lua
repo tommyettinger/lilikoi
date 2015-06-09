@@ -9,9 +9,9 @@ local function transfer_helper(capt)
   if capt[3] == "nil" then
 		return '{"nil","nil",'..capt[2]..','..capt[4]..'},'
 	elseif capt[3] == "true" then
-		return '{"bool",true,'..capt[2]..','..capt[4]..'},'
+		return '{"boolean",true,'..capt[2]..','..capt[4]..'},'
 	elseif capt[3] == "false" then
-		return '{"bool",false,'..capt[2]..','..capt[4]..'},'
+		return '{"boolean",false,'..capt[2]..','..capt[4]..'},'
 	elseif capt[1] == 'STRING' then
 		return '{"string","' .. string.gsub(capt[3], "([\n\"\'])", "\\%1") .. '",'..capt[2]..','..capt[4]..'},'
 	elseif capt[1] == 'LONGSTRING' then
@@ -43,8 +43,8 @@ local function transfer(capt, position, inner_start, inner_end)
     else
       -- we have encountered a non-simple form
       if term[1] == 'CHAIN' then
-        state[#state + 1] = '{"macro",{{"id","access",' .. term[2] .. ',' .. term[5] .. '},'
-        state[#state + 1] = transfer(term[4], 0, term[2], term[5])
+        state[#state + 1] = '{"macro",{{"id","access",' .. term[2] .. ',' .. term[4] .. '},'
+        state[#state + 1] = transfer(term[3], 0, term[2], term[4])
       elseif term[1] == 'PAREN' then
         if term[3] == '(' then
           state[#state + 1] = '{"list",{'
@@ -54,14 +54,14 @@ local function transfer(capt, position, inner_start, inner_end)
           state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         end
       elseif term[1] == 'BRACKET' then
-        state[#state + 1] = '{"vector",{'
+        state[#state + 1] = '{{"number",op="vector"},{'
         state[#state + 1] = transfer(term[4], 0, term[2], term[5])
       elseif term[1] == 'BRACE' then
         if term[2] == '{' then
-          state[#state + 1] = '{"dict",{'
+          state[#state + 1] = '{{"any",op="dict"},{'
           state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         else
-          state[#state + 1] = '{"set",{'
+          state[#state + 1] = '{{op="set"},{'
           state[#state + 1] = transfer(term[4], 0, term[2], term[5])
         end
       elseif term[1] == 'META' then

@@ -47,6 +47,9 @@ local uit = fp.uit
 seed.__scopes = {{}, {}}
 seed.__namespace = nil
 
+local true_id = {'boolean', true}
+local false_id = {'boolean', false}
+
 local function directcall(fun, ...)
   local arglen = select('#', ...)
   local f = rawget(fun, arglen) or rawget(fun, -1)
@@ -72,32 +75,46 @@ seed.make_fn = {"lua", make_fn}
 
 local function defunction(fun, name)
   if type(fun) ~= 'function' then return fun end
-  return make_fn({[-1]=fun}, name or "anonymous")
+  return {'lua', make_fn({[-1]=fun}, name or "anonymous")}
 end
+
+--[[
+a[1] == 'nil' or
+a[1] == 'boolean' or
+a[1] == 'number' or
+a[1] == 'string' or
+a[1] == 'keyword' or
+a[1] == 'id' or
+a[1] == 'fn' or
+a[1] == 'lua' then
+--]]
 
 local function strip_args(...)
   local args, len = {}, select('#', ...)
   for i = 1,len do
     local a = select(i, ...)
-    if a[1] == 'nil' or
-       a[1] == 'bool' or
-       a[1] == 'number' or
-       a[1] == 'string' or
-       a[1] == 'keyword' or
-       a[1] == 'id' or
-       a[1] == 'fn' or
-       a[1] == 'lua' then
-         args[i] = a[2]
+    if type(a[1]) == 'table' then
+      args[i] = strip_args(unpack(a[2]))
     else
-      args[i] = {strip_args(unpack(a[2]))}
+      args[i] = a[2]
     end
   end
-  return unpack(args)
+  return args
 end
 
 local function strip_wrap(fun)
   return function(...)
-    return fun(strip_args(...))
+    return fun(unpack(strip_args(...)))
+  end
+end
+
+local function val_wrap(v)
+  if type(v) == 'table' then
+    return {{'any'}, v}
+  elseif type(v) == 'function' then
+    return {'lua', v}
+  else
+    return {type(v), v}
   end
 end
 
@@ -115,7 +132,8 @@ end
 
 seed["kw-get"] = {"lua", kw_get}
 
-local function lookup(name)
+local function lookup(t)
+  local name = t[2]
 	for revi=#seed.__scopes, 1, -1 do
 		if seed.__scopes[revi][name] ~= nil then
 			local ret = seed.__scopes[revi][name]
@@ -140,45 +158,51 @@ local function lookup(name)
 	return nil
 end
 
-seed.lookup = {"lua", lookup}
+seed.lookup = {"fn", lookup}
+
+local function _import(newname, oldname)
+  oldname = oldname or newname
+  seed[newname] = {{'any',op='vector',done=true}, require(oldname)}
+  return seed[newname]
+end
 
 local function is_identifier(t)
   if type(t) == 'table' and t[1] == 'id' then
-    return true
+    return true_id
   end
-  return false
+  return false_id
 end
 
 local function is_quoted(t)
   if type(t) == 'table' and t[1] == 'quote' then
-    return true
+    return true_id
   end
-  return false
+  return false_id
 end
 
 
 local function is_keyword(t)
   if type(t) == 'table' and t[1] == 'keyword' then
-    return true
+    return true_id
   end
-  return false
+  return false_id
 end
 
 local function is_string(t)
   if type(t) == 'string' or (type(t) == 'table' and t[1] == 'string') then
-    return true
+    return true_id
   end
-  return false
+  return false_id
 end
 
-seed["identifier?"] = {"lua", is_identifier}
-seed["quoted?"] = {"lua", is_quoted}
-seed["keyword?"] = {"lua", is_keyword}
-seed["string?"] = {"lua", is_string}
+seed["identifier?"] = {"fn", is_identifier}
+seed["quoted?"] = {"fn", is_quoted}
+seed["keyword?"] = {"fn", is_keyword}
+seed["string?"] = {"fn", is_string}
 
 local function identify(t)
   if t[1] == 'id' then
-    return lookup(t[2])
+    return lookup(t)
   end
   return nil
 end
@@ -190,16 +214,16 @@ local function quote_id(t)
   return t
 end
 
-local function dequote(t, name)
+local function dequote(t)
   if t == 'quote' then
     return {'id', t[2], t[3], t[4]}
   end
   return t
 end
 
-seed.identify = {"lua", identify}
-seed["quote-id"] = {"lua", quote_id}
-seed.dequote = {"lua", dequote}
+seed.identify = {"fn", identify}
+seed["quote-id"] = {"fn", quote_id}
+seed.dequote = {"fn", dequote}
 
 -- reads a sequence of generated sexps and data from
 -- the specified codeseq, which should already have a program,
@@ -235,8 +259,9 @@ local function eval(codeseq, quotelevel, kind)
   else
     local prime, op, nm
     local special_open = true
-    if kind == 'vector' then
-      op, nm = seed.vector, 'vector'
+    if type(kind) == 'table' then
+      if kind.done then return {kind, codeseq} end
+      op, nm = lookup({'id', kind.op}), kind.op
       special_open = false
     else
       prime = codeseq[1]
@@ -252,7 +277,7 @@ local function eval(codeseq, quotelevel, kind)
         op = defunction(op, nm)
       end
     end
-    if special_open and op and is_keyword(op) then
+    if special_open and op and is_keyword(op)[2] then
       term = codeseq[2]
       local tv = term[2]
       if type(tv) == 'table' then 
@@ -264,7 +289,7 @@ local function eval(codeseq, quotelevel, kind)
       return kw_get(op, arglist[1][2])
     end
     
-    if op.macro then
+    if kind == 'macro' or op[2].macro then
       for i=(special_open and 2 or 1), #codeseq do
         term = codeseq[i]
         local tv = term[2]
@@ -274,22 +299,29 @@ local function eval(codeseq, quotelevel, kind)
           arglist[i-(special_open and 1 or 0)] = quote_id(term)
         end
       end
+      if op[1] == 'lua' then
+        return val_wrap(op[2](unpack(strip_args(unpack(arglist)))))
+      end
       return op[2](unpack(arglist))
     end
     
     for i=(special_open and 2 or 1), #codeseq do
       term = codeseq[i]
       local tv = term[2]
+      local idx = i-(special_open and 1 or 0)
       if type(tv) == 'table' then 
-        arglist[i-(special_open and 1 or 0)] = eval(tv, quotelevel, term[1])
+        arglist[idx] = eval(tv, quotelevel, term[1])
       else
         if codify then
-          arglist[i-(special_open and 1 or 0)], nm = identify(dequote(term))
+          arglist[idx], nm = identify(dequote(term))
         else
-          arglist[i-(special_open and 1 or 0)], nm = identify(term)
+          arglist[idx], nm = identify(term)
         end
-        if arglist[i-(special_open and 1 or 0)] == nil then arglist[i-1] = tv end
+        if arglist[idx] == nil then arglist[idx] = term end
       end
+    end
+    if op[1] == 'lua' then
+      return val_wrap(op[2](unpack(strip_args(unpack(arglist)))))
     end
     return op[2](unpack(arglist))
   end
@@ -311,15 +343,17 @@ seed.minirun = {"lua", minirun}
 -- the entry point for a program. Clears any possible lingering state,
 -- then returns any number of args (ideally 1, if the program
 -- completed with one return value) based on evaluating a codeseq.
+-- returns a bare value.
 function seed.run(program)
 	seed.__scopes = {{},{}}
 	seed.__namespace = nil
-  return eval(program)
+  return unpack(strip_args(eval(program)))
 end
 
 -- a re-entry point for a program. Keeps any possible lingering state,
 -- then returns any number of args (ideally 1, if the program
 -- completed with one return value) based on evaluating a codeseq.
+-- returns a form with additional information, not a bare value.
 function seed.run_in(program)
   return eval(program)
 end
@@ -331,6 +365,12 @@ local function defn(ops, name, macro)
 end
 
 seed._defn = defn
+
+local function deflua(ops, name, macro)
+	seed[name] = {"lua", make_fn(ops, name, macro)}
+end
+
+seed._deflua = deflua
 
 local function count(t)
 	if type(t) == 'table' then
@@ -362,27 +402,27 @@ defn({[1]=strip_wrap(seq)}, "seq")
 
 
 local function access(top, ...)
-  local res = lookup(top[2])
+  local res = lookup({'id',top})
   for i=1, select('#', ...) do
-    res = res[select(i, ...)[2]]
+    res = res[select(i, ...)]
     if res == nil then return res end
   end
   return res
 end
 
-defn({[-1]=access}, "access", true)
+deflua({[-1]=access}, "access", true)
 
 local function vector(...)
-  return {...}
+  return {{"number",op="vector",done=true}, {...}}
 end
 
 defn({[-1]=vector}, "vector")
 
-defn({[2]=strip_wrap(function(f, coll) return uit.reduce(f, seq(coll)) end), 
-     [3]=strip_wrap(function(f, start, coll) return uit.foldl(f, start, seq(coll)) end) }, "reduce")
+deflua({[2]=function(f, coll) return uit.reduce(f, seq(coll)) end, 
+     [3]=function(f, start, coll) return uit.foldl(f, start, seq(coll)) end }, "reduce")
 
-defn({[2]=strip_wrap(function(f, coll) return uit.reductions(f, seq(coll)) end), 
-     [3]=strip_wrap(function(f, start, coll) return uit.scan(f, start, seq(coll)) end)}, "reductions")
+deflua({[2]=function(f, coll) return uit.reductions(f, seq(coll)) end,
+     [3]=function(f, start, coll) return uit.scan(f, start, seq(coll)) end}, "reductions")
 
 local function quote(term)
   return term
