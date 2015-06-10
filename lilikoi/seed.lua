@@ -215,7 +215,7 @@ local function quote_id(t)
 end
 
 local function dequote(t)
-  if t == 'quote' then
+  if t[1] == 'quote' then
     return {'id', t[2], t[3], t[4]}
   end
   return t
@@ -228,10 +228,9 @@ seed.dequote = {"fn", dequote}
 -- reads a sequence of generated sexps and data from
 -- the specified codeseq, which should already have a program,
 -- and steps through it until it has read a single form.
-local function eval(codeseq, quotelevel, kind)
+local function eval(codeseq, quotelevel, kind, codify)
   if type(codeseq) ~= 'table' then return codeseq end
   quotelevel = quotelevel or 0
-  local codify = kind == 'call'
   if #codeseq == 0 then return {} end
   
   local arglist = {}
@@ -246,7 +245,7 @@ local function eval(codeseq, quotelevel, kind)
         ql = ql - 1
       end
       if type(tv) == 'table' then 
-        arglist[i] = eval(tv, ql, term[1])
+        arglist[i] = eval(tv, ql, term[1], codify)
       else
         if ql == 0 then
           arglist[i] = (identify(term)) or term
@@ -255,7 +254,7 @@ local function eval(codeseq, quotelevel, kind)
         end
       end
     end
-    return arglist
+    return {kind,arglist}
   else
     local prime, op, nm
     local special_open = true
@@ -266,7 +265,7 @@ local function eval(codeseq, quotelevel, kind)
     else
       prime = codeseq[1]
       if type(prime[2]) == 'table' then
-        op = eval(prime[2], quotelevel, prime[1])
+        op = eval(prime[2], quotelevel, prime[1], codify)
         nm = op.name
       else
         if codify then
@@ -281,7 +280,7 @@ local function eval(codeseq, quotelevel, kind)
       term = codeseq[2]
       local tv = term[2]
       if type(tv) == 'table' then 
-        arglist[1] = eval(tv, quotelevel, term[1])
+        arglist[1] = eval(tv, quotelevel, term[1], codify)
       else
         arglist[1], nm = identify(term)
         if arglist[1] == nil then arglist[1] = term end
@@ -294,7 +293,7 @@ local function eval(codeseq, quotelevel, kind)
         term = codeseq[i]
         local tv = term[2]
         if type(tv) == 'table' then 
-          arglist[i-(special_open and 1 or 0)] = eval(tv, quotelevel + 1, term[1])
+          arglist[i-(special_open and 1 or 0)] = eval(tv, quotelevel + 1, term[1], codify)
         else
           arglist[i-(special_open and 1 or 0)] = quote_id(term)
         end
@@ -310,7 +309,7 @@ local function eval(codeseq, quotelevel, kind)
       local tv = term[2]
       local idx = i-(special_open and 1 or 0)
       if type(tv) == 'table' then 
-        arglist[idx] = eval(tv, quotelevel, term[1])
+        arglist[idx] = eval(tv, quotelevel, term[1], codify)
       else
         if codify then
           arglist[idx], nm = identify(dequote(term))
@@ -336,8 +335,8 @@ seed.eval = {'lua',eval}
 -- the evaluation to be carried out at as if it is inside a macro
 -- (for positive values), or if the argument is negative, to unquote any
 -- identifiers encountered unless something else changed the quote level.
-local function minirun(program, quoting)
-  return eval({{'id','do'},program}, quoting)
+local function minirun(program, quoting, kind, codify)
+  return eval({{'id','do'},unpack(program)}, quoting, kind, codify)
 end
 seed.minirun = {"lua", minirun}
 -- the entry point for a program. Clears any possible lingering state,
@@ -472,12 +471,12 @@ local function fn_(name, arglist, argnum, ...)
     end
   end
   local arity = is_variadic and -1 or argnum
-  local ft = {{'id','do'}, ...}
+  local ft = {...}
   return make_fn({[arity]=
       function(...)
         seed.__scopes[#seed.__scopes + 1] = {}
         bind_all_(arglist, {...}, arity)
-        return minirun(ft, 0, "call")
+        return minirun(ft, 0, "call", true)
       end}, name)
 end
 local function choose_fn_(name, ...)
@@ -495,13 +494,13 @@ local function choose_fn_(name, ...)
       end
     end
     local arity = is_variadic and -1 or argnum
-    table.remove(current, 1)
-    local ft = current
+--    table.remove(current, 1)
+    local ft = {current[2]}
     optab[arity]=
     function(...)
       seed.__scopes[#seed.__scopes + 1] = {}
       bind_all_(arglist, {...}, arity)
-      return minirun(ft, 0, "call")
+      return minirun(ft, 0, "call", true)
     end
   end
   return make_fn(optab, name)
@@ -510,18 +509,20 @@ end
 local function fn(...)
   local nm = 'anonymous_fn'
   local arglist = select(1, ...)
-  if arglist[1] == 'vector' then
+  pp"arglist is:"
+  pp(arglist)
+  if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
     return {"fn", fn_(nm, arglist[2], #arglist[2], select(2, ...))}
-  elseif arglist[1] == 'string' then
-    nm = arglist[2]
+  elseif type(arglist[1]) == 'table' and arglist[1][1] == 'quote' then
+    nm = arglist[1][2]
     arglist = select(2, ...)
-    if arglist[1] == 'vector' then
+    if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
       return {"fn", fn_(nm, arglist[2], #arglist[2], select(3, ...))}
-    elseif type(arglist[1] == 'list') then
+    elseif arglist[1] == 'list' then
       -- multiple arglists and bodies
       return {"fn", choose_fn_(nm, select(2, ...))}
     end
-  elseif type(arglist[1] == 'list') then
+  elseif arglist[1] == 'list' then
     -- multiple arglists and bodies
     return {"fn", choose_fn_(nm, ...)}
   end

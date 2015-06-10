@@ -57,6 +57,8 @@ syscall/**
 !lilikoi_test.lua
 !fun.lua
 
+langtoolkit/**
+
 # jEdit garbage
 *~
 *#*#
