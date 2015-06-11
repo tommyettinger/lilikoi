@@ -110,7 +110,7 @@ end
 
 local function val_wrap(v)
   if type(v) == 'table' then
-    return {{'any'}, v}
+    return {{'any',op='table',done=true}, {v}}
   elseif type(v) == 'function' then
     return {'lua', v}
   else
@@ -209,14 +209,14 @@ end
 
 local function quote_id(t)
   if t[1] == 'id' then
-    return {'quote', t[2], t[3], t[4]}
+    return {'quote', t[2]}
   end
   return t
 end
 
 local function dequote(t)
   if t[1] == 'quote' then
-    return {'id', t[2], t[3], t[4]}
+    return {'id', t[2]}
   end
   return t
 end
@@ -381,7 +381,7 @@ local function count(t)
 	end
 end
 
-defn({[1]=strip_wrap(count)}, "count")
+deflua({[1]=count}, "count")
 
 local function _do(...)
   local res = nil
@@ -397,7 +397,7 @@ local function seq(t)
   return uit.iter(t, nil, nil)
 end
 
-defn({[1]=strip_wrap(seq)}, "seq")
+deflua({[1]=seq}, "seq")
 
 
 local function access(top, ...)
@@ -409,13 +409,19 @@ local function access(top, ...)
   return res
 end
 
-deflua({[-1]=access}, "access", true)
+deflua({[-1]=access}, "access", "special")
 
 local function vector(...)
   return {{"number",op="vector",done=true}, {...}}
 end
 
 defn({[-1]=vector}, "vector")
+
+local function _table(t)
+  return {{"any",op="table",done=true}, {t}}
+end
+
+defn({[1]=_table}, "table")
 
 deflua({[2]=function(f, coll) return uit.reduce(f, seq(coll)) end, 
      [3]=function(f, start, coll) return uit.foldl(f, start, seq(coll)) end }, "reduce")
@@ -427,7 +433,7 @@ local function quote(term)
   return term
 end
 
-defn({[1]=quote}, "quote", "quote")
+defn({[1]=quote}, "quote", "special")
 -- (fn [[a [b c]]] ...)
 -- [a [b c]]
 local function destructure(ks, coll)
@@ -509,8 +515,6 @@ end
 local function fn(...)
   local nm = 'anonymous_fn'
   local arglist = select(1, ...)
-  pp"arglist is:"
-  pp(arglist)
   if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
     return {"fn", fn_(nm, arglist[2], #arglist[2], select(2, ...))}
   elseif type(arglist[1]) == 'table' and arglist[1][1] == 'quote' then
@@ -529,7 +533,7 @@ local function fn(...)
   error("Declaring this fn failed because it does not match the expected structure:\n" .. pp.format({...}))
 end
 
-defn({[-1]=fn}, "fn", true)
+defn({[-1]=fn}, "fn", "special")
 
 --[[
 local function lambda(args)

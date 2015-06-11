@@ -125,7 +125,6 @@ local function check(llk)
   pp(lil.translate(llk))
 	pp(lil.run(llk))
 end
---[=[
 check("1")
 check('"abc"')
 check('#[[abc\ndef]]')
@@ -140,7 +139,7 @@ check('(+ 1.1 2.2 3.3 4.4 (* 3 3))')
 
 --check('(reduce + [1 2 3])')
 check('(reduce + [1 2 3 math.pi])')
---[==[
+--[=[
 check("(reduce + '(1 2 3))")
 check('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})')
 check('(reduce #(str %1 (val %2)) ^[:what ever] {:a 1 :b 2})')
