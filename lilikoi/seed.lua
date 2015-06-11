@@ -93,7 +93,7 @@ local function strip_args(...)
   local args, len = {}, select('#', ...)
   for i = 1,len do
     local a = select(i, ...)
-    if type(a[1]) == 'table' then
+    if type(a[1]) == 'table' or a[1] == 'list' then
       args[i] = strip_args(unpack(a[2]))
     else
       args[i] = a[2]
