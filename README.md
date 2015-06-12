@@ -1,48 +1,34 @@
 # lilikoi
 
-## a little stack/functional/array programming language
+## a little lisp-y programming language
 
-Lilikoi is a brand-new programming language with bits and pieces drawn from
-concatenative (also called stack), functional, and array programming families.
-It translates to LuaJIT's dialect of Lua.
+Lilikoi is a brand-new programming language that is heavily inspired by
+[Clojure](http://clojure.org), but with less emphasis on immutability,
+and more drawn from array programming languages. It translates to
+LuaJIT's dialect of Lua, and can interoperate with Lua code.
 
 ## EXAMPLES
 
-All of this is likely to change, but currently you can (starting from the
+Much of this is likely to change, but currently you can (starting from the
 simplest)...
 * Do basic arithmetic:
-  `1 + 2` returns 3.
-* Group arithmetic into logical sections (there is no order of operations):
-  `2 * 3 / (5 - 3)` returns 2.5, since the group `(5 - 3)` goes separately
-  and the rest goes left to right.
-* Define constants and include functions from Lua's standard lib:
-  `(def pi2 (math.pi * 2)) pi2` returns a Lua number that's equal to 2*pi.
-* Create partial functions, pass them around, and call them when desired:
-  `(def inc (1 +)) (inc 5) + 4` returns 10. The value of inc is a
-  partial function, as in, it has only received some part of the argument
-  list it needs to return the desired value. When it gets 5, it adds 1 to
-  it, then adding 4 gets 10.
-* Create new functions to operate on data:
-  `(defn decimate [ num ] num * 0.9) (decimate 100)` returns 90. In square
-  brackets after defn and a name, you have an argument list (here with
-  only one argument, num), and everything after the brackets until the 
-  parenthesized group ends will be executed after temporarily giving the
-  arguments whatever values were passed to the function (here, num
-  becomes 100, so in the body, 100 * 0.9 is 90).
-* Use functions as first-class items:
-  `(defn decimate [ num ] num * 0.9) (map (decimate) [ 10 20 40 80 160 ])`
-  returns a Lua table with 5 elements: 9, 18, 36, 72, 144. It needs
-  parentheses around `decimate` so it doesn't try to call decimate on the
-  table; in future versions this is likely to change so you can call
-  a function that takes a scalar argument and call it implicitly on each
-  scalar element in a sequence.
-* Create macros, custom grouping functions, and soon actually useful,
-  new features like independent data and ways to access that data (the
-  concept of domains, basically first-class sets of indices). With the
-  right custom groups defined, you could run
-  `[:< "I eat" 5 "servings of fruit a day." >:]` and get back a result
-  modified by the grouping functions `[:< and >:]` such as
-  `"I want" 2 "whole fried chickens and a Coke."`
+  
+  `(+ 1 2 3)` returns 6.
+
+* Define functions:
+  
+  `((fn half-pow [x y] (/ (pow x y) 2)) 10 3)` creates and immediately calls a fn, returning `500`.
+   The name is optional.
+  
+  `((fn add-half ([x y] (+ x (/ y 2))) ([x & ys] (+ x (/ (reduce + ys) 2)))) 10 1 2 3)` creates and immediately calls a fn with multiple argument lists, uses the second fn body with the variable-length arglist `[x & ys]`, and returns `13`.
+  
+* Use functional programming techniques:
+  
+  `(reduce * [2 3 4 5])` returns the result of multiplying all the elements in the vector, `120`
+  
+  `(reductions * [2 3 4 5])` returns a table as a list, `{2, 6, 24, 120}`
+
+  Clojure-style macros are being developed now.
   
 ## SETUP
 
@@ -53,25 +39,25 @@ current folder. You can use `mgit --all pull` on Windows or
 `./mgit --all pull` on Mac or Linux to update. Thanks to the LuaPower project
 for all their hard work!
 
-## API
+## Lua API
 
 ### `local lil = require'lilikoi'`
 ------------------------------------------ ----------------------
-`lil.translate(code) -> result | nil,err`  translate to lua
-`lil.run(code) -> nil | nil,err`           run code directly
+`lil.translate(code) -> str | nil,err`  translate to lua
+`lil.run(code) -> value | nil,err`           run code directly
 ------------------------------------------ ----------------------
 
-### `lil.translate(code) -> result | nil,err`
+### `lil.translate(code) -> str | nil,err`
 
 Translates a piece of lilikoi code, given as a string, to a string
 of lua code as a result.
 Raises an error if it fails.
 
-### `lil.run(code) -> true | nil,err`
+### `lil.run(code) -> value | nil,err`
 
 Translates a piece of lilikoi code, given as a string, to lua and
-immediately evaluates that lua code, returning true if it succeeds.
-Raises an error if it fails.
+immediately evaluates that lua code, returning whatever the last form in
+the code evaluates to, if it succeeds. Raises an error if it fails.
 
 ## FAQ
 
@@ -82,12 +68,18 @@ Raises an error if it fails.
    Also, it's a lil' language.
  * Any credits to mention?
  * Lewis Campbell came up with the original idea of a curried stack language,
-   and I decided to use a similar core concept with a different implementation.
+   and that inspired the first design of lilikoi. Even though it later became
+   difficult to understand the subtleties of the syntax it used, and I switched
+   to using Lisp's prefix notation, implementing the original idea showed me
+   that it isn't as hard as I thought to make a programming language.
    Joshua Day, Risto Saarelma, Derrick Creamer, and the other helpful folk
    of #rgrd helped clarify many rough patches in the language idea.
    Alan Malloy, Gary Fredericks, Justin Smith, and the rest of the wonderful
    #clojure community also have contributed in various ways to me being able
-   to make this.
+   to make this. Peter Keller has been an invaluable aid as well; having
+   access to the experience of someone who has already implemented multiple
+   Lisps has been humbling, and I am grateful to everyone who's contributed
+   in any way.
 
 ## LICENSE
 
