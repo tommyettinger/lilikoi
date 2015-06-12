@@ -475,8 +475,9 @@ local function bind_all_(argnames, argvals, arity)
     local used_len = uit.length(used_names)
     uit.each(bind_once_, uit.zip(used_names, uit.take_n(used_len, seq(argvals))))
     if argnames[used_len + 2] then
-      bind_once_(argnames[used_len + 2], {'vector', uit.totable(uit.drop_n(used_len, seq(argvals)))})
+      bind_once_(argnames[used_len + 2], {{"number",op='vector',done=true}, uit.totable(uit.drop_n(used_len, seq(argvals)))})
     end
+    return nil
   end
   uit.each(bind_once_, uit.zip(seq(argnames), seq(argvals)))
 end
@@ -530,8 +531,8 @@ local function fn(...)
   local arglist = select(1, ...)
   if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
     return {"fn", fn_(nm, arglist[2], #arglist[2], select(2, ...))}
-  elseif type(arglist[1]) == 'table' and arglist[1][1] == 'quote' then
-    nm = arglist[1][2]
+  elseif arglist[1] == 'quote' then
+    nm = arglist[2]
     arglist = select(2, ...)
     if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
       return {"fn", fn_(nm, arglist[2], #arglist[2], select(3, ...))}

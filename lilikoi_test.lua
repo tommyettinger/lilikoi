@@ -142,9 +142,10 @@ check('(+ 1.1 2.2 3.3 4.4 (* 3 3))')
 check('(reduce + [1 2 3 math.pi])')
 --]==]
 --check("(reduce + '(1 2 3))")
-check("(reduce + '(1 2 3 ~math.pi))")
-check("(reduce + (list 1 2 3 math.pi))")
-check("`(reduce + (list 1 2 3 math.pi))")
+--check("(reduce + '(1 2 3 ~math.pi))")
+--check("(reduce + (list 1 2 3 math.pi))")
+check("((fn ignore-first [x & ys] (reduce + ys)) 10 1 2 3)")
+check("((fn add-half ([x y] (+ x (/ y 2))) ([x & ys] (+ x (/ (reduce + ys) 2)))) 10 1 2 3)")
 --[=[
 check('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})')
 check('(reduce #(str %1 (val %2)) ^[:what ever] {:a 1 :b 2})')
