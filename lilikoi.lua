@@ -12,4 +12,8 @@ function lilikoi.run(code)
     return seed.execute(code)
 end
 
+function lilikoi.run_in(code)
+    return seed.execute_in(code)
+end
+
 return lilikoi

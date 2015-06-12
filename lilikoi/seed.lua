@@ -234,7 +234,7 @@ local function eval(codeseq, quotelevel, kind, codify)
   if type(codeseq) ~= 'table' then return codeseq end
   quotelevel = quotelevel or 0
   if #codeseq == 0 then return {} end
-  
+  if kind == 'syntax' then quotelevel = quotelevel + 1 end
   local arglist = {}
   local term
   if quotelevel > 0 then
@@ -256,6 +256,8 @@ local function eval(codeseq, quotelevel, kind, codify)
       end
     end
     if kind == "unquote" then
+      return (unpack(arglist))
+    elseif kind == "syntax" then
       return (unpack(arglist))
     else
       return {kind,arglist}

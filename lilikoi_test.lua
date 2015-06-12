@@ -144,6 +144,7 @@ check('(reduce + [1 2 3 math.pi])')
 --check("(reduce + '(1 2 3))")
 check("(reduce + '(1 2 3 ~math.pi))")
 check("(reduce + (list 1 2 3 math.pi))")
+check("`(reduce + (list 1 2 3 math.pi))")
 --[=[
 check('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})')
 check('(reduce #(str %1 (val %2)) ^[:what ever] {:a 1 :b 2})')
