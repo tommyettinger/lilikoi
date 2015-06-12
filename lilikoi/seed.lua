@@ -134,6 +134,8 @@ seed["kw-get"] = {"lua", kw_get}
 
 local function lookup(t)
   local name = t[2]
+  if name == 'seed' then return seed end
+  
 	for revi=#seed.__scopes, 1, -1 do
 		if seed.__scopes[revi][name] ~= nil then
 			local ret = seed.__scopes[revi][name]
@@ -240,8 +242,7 @@ local function eval(codeseq, quotelevel, kind, codify)
       local ql = quotelevel
       term = codeseq[i]
       local tv = term[2]
-      if type(arglist[i-1]) == 'table' and arglist[i-1][1] == 'quote' and
-          arglist[i-1][2] == "unquote" then
+      if kind == "unquote" then
         ql = ql - 1
       end
       if type(tv) == 'table' then 
@@ -254,7 +255,11 @@ local function eval(codeseq, quotelevel, kind, codify)
         end
       end
     end
-    return {kind,arglist}
+    if kind == "unquote" then
+      return (unpack(arglist))
+    else
+      return {kind,arglist}
+    end
   else
     local prime, op, nm
     local special_open = true
@@ -410,6 +415,12 @@ local function access(top, ...)
 end
 
 deflua({[-1]=access}, "access", "special")
+
+local function list(...)
+  return {"list", {...}}
+end
+
+defn({[-1]=list}, "list")
 
 local function vector(...)
   return {{"number",op="vector",done=true}, {...}}

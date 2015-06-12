@@ -141,7 +141,9 @@ check('(+ 1.1 2.2 3.3 4.4 (* 3 3))')
 --check('(reduce + [1 2 3])')
 check('(reduce + [1 2 3 math.pi])')
 --]==]
-check("(reduce + '(1 2 3))")
+--check("(reduce + '(1 2 3))")
+check("(reduce + '(1 2 3 ~math.pi))")
+check("(reduce + (list 1 2 3 math.pi))")
 --[=[
 check('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})')
 check('(reduce #(str %1 (val %2)) ^[:what ever] {:a 1 :b 2})')
@@ -150,9 +152,9 @@ check("(defmacro defvariad [opname op] `(defn ~opname [& $args] (reduce ~op $arg
 check("(apply '~$math.min.foo.bar '''(1 2 3))")
 check("math.foo.bar.pi")
 check('(reduce + [1 2 3])')
---]=]
 check('((fn ([op] (reduce op [1 2 3])) ([op start] (reduce op start [1 2 3]))) + 10)')
 check('((fn [op] (reduce op [1 2 3])) +)')
+--]=]
 
 
 

@@ -74,10 +74,10 @@ local function transfer(capt, position)
           state[#state + 1] = '{"macro",{{"id","auto-gensym"},'
           state[#state + 1] = transfer(term[3], 1)
         elseif term[3][1] == '~' then
-          state[#state + 1] = '{"unquote",{{"id","unquote"},'
+          state[#state + 1] = '{"unquote",{'
           state[#state + 1] = transfer(term[3], 1)
         elseif term[3][1] == '`' then
-          state[#state + 1] = '{"syntax",{{"id","syntax-quote"},'
+          state[#state + 1] = '{"syntax",{'
           state[#state + 1] = transfer(term[3], 1)
         end
       end
