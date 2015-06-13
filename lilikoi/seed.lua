@@ -45,7 +45,7 @@ local fp = require'fun'
 local uit = fp.uit
 
 seed.__scopes = {{}, {}}
-seed.__namespace = nil
+seed.__module = {}
 
 local true_id = {'boolean', true}
 local false_id = {'boolean', false}
@@ -133,24 +133,28 @@ end
 seed["kw-get"] = {"lua", kw_get}
 
 local function lookup(t)
-  local name = t[2]
+  local name, max_scope = t[2], t[3]
   if name == 'seed' then return seed end
   
-	for revi=#seed.__scopes, 1, -1 do
-		if seed.__scopes[revi][name] ~= nil then
-			local ret = seed.__scopes[revi][name]
-      if type(ret) == 'table' then return ret end
-      return {'lua',ret}
-		end
-	end
-  
-	if seed.__namespace then
-		if seed.__namespace[name] ~= nil then
-      local ret = seed.__namespace[name]
-      if type(ret) == 'table' then return ret end
-      return {'lua',ret}
+  if seed.__scopes[#seed.__scopes][name] ~= nil then
+    local ret = seed.__scopes[#seed.__scopes][name]
+    if type(ret) == 'table' then return ret end
+    return {'lua',ret}
+  else
+    for revi=(max_scope or #seed.__scopes - 1), 1, -1 do
+      if seed.__scopes[revi][name] ~= nil then
+        local ret = seed.__scopes[revi][name]
+        if type(ret) == 'table' then return ret end
+        return {'lua',ret}
+      end
     end
-  end 
+  end
+  
+	if seed.__module and seed.__module[name] ~= nil then
+    local ret = seed.__module[name]
+    if type(ret) == 'table' then return ret end
+    return {'lua',ret}
+  end
   
   if seed[name] ~= nil then
     local ret = seed[name]
@@ -216,9 +220,9 @@ local function quote_id(t)
   return t
 end
 
-local function dequote(t)
+local function dequote(t, max_scope)
   if t[1] == 'quote' then
-    return {'id', t[2]}
+    return {'id', t[2], max_scope}
   end
   return t
 end
@@ -276,7 +280,7 @@ local function eval(codeseq, quotelevel, kind, codify)
         nm = op.name
       else
         if codify then
-          op, nm = identify(dequote(prime))
+          op, nm = identify(dequote(prime, codify))
         else 
           op, nm = identify(prime)
         end
@@ -319,7 +323,7 @@ local function eval(codeseq, quotelevel, kind, codify)
         arglist[idx] = eval(tv, quotelevel, term[1], codify)
       else
         if codify then
-          arglist[idx], nm = identify(dequote(term))
+          arglist[idx], nm = identify(dequote(term, codify))
         else
           arglist[idx], nm = identify(term)
         end
@@ -352,7 +356,7 @@ seed.minirun = {"lua", minirun}
 -- returns a bare value.
 function seed.run(program)
 	seed.__scopes = {{},{}}
-	seed.__namespace = nil
+	seed.__module = {}
   return unpack(strip_args(eval(program)))
 end
 
@@ -366,29 +370,17 @@ end
 
 seed["nil"] = {"nil", nil}
 
-local function defn(ops, name, macro)
+local function raw_defn(ops, name, macro)
 	seed[name] = {"fn", make_fn(ops, name, macro)}
 end
 
-seed._defn = defn
+seed._raw_defn = raw_defn
 
 local function deflua(ops, name, macro)
 	seed[name] = {"lua", make_fn(ops, name, macro)}
 end
 
 seed._deflua = deflua
-
-local function count(t)
-	if type(t) == 'table' then
-		return #t, true
-	elseif not not t then
-		return 1, false
-  else
-    return 0, false
-	end
-end
-
-deflua({[1]=count}, "count")
 
 local function _do(...)
   local res = nil
@@ -398,7 +390,7 @@ local function _do(...)
   return res
 end
 
-defn({[-1]=_do}, "do")
+raw_defn({[-1]=_do}, "do")
 
 local function seq(t)
   return uit.iter(t, nil, nil)
@@ -406,6 +398,20 @@ end
 
 deflua({[1]=seq}, "seq")
 
+local function def(name, val)
+  local value = minirun({val}, 0, "call", #seed.__scopes)
+  if seed.__module then
+    seed.__module[name[2]] = value
+  else
+    if seed[name[2]] ~= nil then error("Cannot define a new toplevel value for name because it already exists:\n" .. pp.format(name[2] ..
+          "\nExisting value for this name is:\n" .. pp.format(seed[name[2]])))
+    end
+    seed[name[2]] = value
+  end
+  return value
+end
+
+raw_defn({[2]=def}, "def", true)
 
 local function access(top, ...)
   local res = lookup({'id',top})
@@ -422,19 +428,29 @@ local function list(...)
   return {"list", {...}}
 end
 
-defn({[-1]=list}, "list")
+raw_defn({[-1]=list}, "list")
 
 local function vector(...)
   return {{"number",op="vector",done=true}, {...}}
 end
 
-defn({[-1]=vector}, "vector")
+raw_defn({[-1]=vector}, "vector")
 
 local function _table(t)
   return {{"any",op="table",done=true}, {t}}
 end
 
-defn({[1]=_table}, "table")
+raw_defn({[1]=_table}, "table")
+
+local function count(t)
+	if type(t) == 'table' then
+		return #t, true
+  else
+    return nil, false
+	end
+end
+
+deflua({[1]=count}, "count")
 
 deflua({[2]=function(f, coll) return uit.reduce(f, seq(coll)) end, 
      [3]=function(f, start, coll) return uit.foldl(f, start, seq(coll)) end }, "reduce")
@@ -446,7 +462,8 @@ local function quote(term)
   return term
 end
 
-defn({[1]=quote}, "quote", "special")
+raw_defn({[1]=quote}, "quote", "special")
+
 -- (fn [[a [b c]]] ...)
 -- [a [b c]]
 local function destructure(ks, coll)
@@ -482,7 +499,7 @@ local function bind_all_(argnames, argvals, arity)
   uit.each(bind_once_, uit.zip(seq(argnames), seq(argvals)))
 end
 
-local function fn_(name, arglist, argnum, ...)
+local function fn_(name, arglist, argnum, my_scope, ...)
   local is_variadic = false
   if argnum > 1 then
     local s2l = arglist[argnum - 1]
@@ -496,10 +513,10 @@ local function fn_(name, arglist, argnum, ...)
       function(...)
         seed.__scopes[#seed.__scopes + 1] = {}
         bind_all_(arglist, {...}, arity)
-        return minirun(ft, 0, "call", true)
+        return minirun(ft, 0, "call", my_scope)
       end}, name)
 end
-local function choose_fn_(name, ...)
+local function choose_fn_(name, my_scope, ...)
   local optab = {}
   for i=1, select('#', ...) do
     local current = (select(i, ...))[2]
@@ -520,7 +537,7 @@ local function choose_fn_(name, ...)
     function(...)
       seed.__scopes[#seed.__scopes + 1] = {}
       bind_all_(arglist, {...}, arity)
-      return minirun(ft, 0, "call", true)
+      return minirun(ft, 0, "call", my_scope)
     end
   end
   return make_fn(optab, name)
@@ -530,24 +547,39 @@ local function fn(...)
   local nm = 'anonymous_fn'
   local arglist = select(1, ...)
   if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
-    return {"fn", fn_(nm, arglist[2], #arglist[2], select(2, ...))}
+    return {"fn", fn_(nm, arglist[2], #arglist[2], #seed.__scopes, select(2, ...))}
   elseif arglist[1] == 'quote' then
     nm = arglist[2]
     arglist = select(2, ...)
     if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
-      return {"fn", fn_(nm, arglist[2], #arglist[2], select(3, ...))}
+      return {"fn", fn_(nm, arglist[2], #arglist[2], #seed.__scopes, select(3, ...))}
     elseif arglist[1] == 'list' then
       -- multiple arglists and bodies
-      return {"fn", choose_fn_(nm, select(2, ...))}
+      return {"fn", choose_fn_(nm, #seed.__scopes, select(2, ...))}
     end
   elseif arglist[1] == 'list' then
     -- multiple arglists and bodies
-    return {"fn", choose_fn_(nm, ...)}
+    return {"fn", choose_fn_(nm, #seed.__scopes, ...)}
   end
   error("Declaring this fn failed because it does not match the expected structure:\n" .. pp.format({...}))
 end
 
-defn({[-1]=fn}, "fn", "special")
+raw_defn({[-1]=fn}, "fn", "special")
+
+local function defn(name, ...)
+  local value = fn(...)
+  if seed.__module then
+    seed.__module[name[2]] = value
+  else
+    if seed[name[2]] ~= nil then error("Cannot define a new toplevel fn for name because it already exists:\n" .. pp.format(name[2] ..
+          "\nExisting value for this fn is:\n" .. pp.format(seed[name[2]])))
+    end
+    seed[name[2]] = value
+  end
+  return value
+end
+
+raw_defn({[-1]=defn}, "defn", true)
 
 --[[
 local function lambda(args)
@@ -813,7 +845,7 @@ local function _fn(args)
 end
 
 
-local function _defn(args)
+local function _raw_defn(args)
 	local name = table.remove(args, 1)
 	local val = _fn(args)
 	rawset(val, "\6name", seed.munge(seed._clean(name)))
@@ -939,7 +971,7 @@ local function _ns(name)
 end
 
 seed.__def(_fn, -1, "fn", nil, true)
-seed.__def(_defn, -1, "defn", nil, true)
+seed.__def(_raw_defn, -1, "raw_defn", nil, true)
 seed.__def(_defgroup, -1, "defgroup", nil, true)
 seed.__def(_defmacro, -1, "defmacro", nil, true)
 seed.__def(_ns, -1, "ns", nil, true)
