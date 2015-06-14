@@ -42,7 +42,7 @@ local function transfer(capt, position)
     else
       -- we have encountered a non-simple form
       if term[1] == 'CHAIN' then
-        state[#state + 1] = '{"macro",{{"id","access"},'
+        state[#state + 1] = '{"list",{{"id","access"},'
         state[#state + 1] = transfer(term[3], 0)
       elseif term[1] == 'PAREN' then
         if term[3] == '(' then

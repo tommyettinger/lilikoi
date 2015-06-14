@@ -46,9 +46,12 @@ local uit = fp.uit
 
 seed.__scopes = {{}, {}}
 seed.__module = {}
+seed.__macros = {}
 
 local true_id = {'boolean', true}
 local false_id = {'boolean', false}
+
+seed["nil"] = {"nil", nil}
 
 local function directcall(fun, ...)
   local arglen = select('#', ...)
@@ -72,6 +75,22 @@ end
 
 seed._make_fn = make_fn
 seed.make_fn = {"lua", make_fn}
+
+local function raw_defn(ops, name, macro)
+	seed[name] = {"fn", make_fn(ops, name, macro)}
+  if macro == true then
+    seed.__macros[name] = true
+  end
+end
+
+seed._raw_defn = raw_defn
+
+local function deflua(ops, name, macro)
+	seed[name] = {"lua", make_fn(ops, name, macro)}
+end
+
+seed._deflua = deflua
+
 
 local function defunction(fun, name)
   if type(fun) ~= 'function' then return fun end
@@ -168,7 +187,7 @@ seed.lookup = {"fn", lookup}
 
 local function _import(newname, oldname)
   oldname = oldname or newname
-  seed[newname] = {{'any',op='vector',done=true}, require(oldname)}
+  seed[newname] = require(oldname)
   return seed[newname]
 end
 
@@ -230,6 +249,27 @@ end
 seed.identify = {"fn", identify}
 seed["quote-id"] = {"fn", quote_id}
 seed.dequote = {"fn", dequote}
+
+local function macroexpand1(codeseq)
+  local newcode = {}
+  for i=1,#codeseq do
+    local term = codeseq[i]
+    if type(term[2]) == 'table' then
+      if type(term[2][1]) == 'table' and (term[1] == 'macro' or
+          (term[2][1][1] == 'id' and seed.__macros[term[2][1][2]] == true)) then
+          local op = table.remove(term[2], 1)
+          local args = term[2]
+        newcode[i] = identify(op)[2](unpack(args))
+      else
+        newcode[i] = {term[1], macroexpand1(term[2])}
+      end
+    else
+      newcode[i] = fp.clone(term)
+    end
+  end
+  return newcode
+end
+
 
 -- reads a sequence of generated sexps and data from
 -- the specified codeseq, which should already have a program,
@@ -367,20 +407,6 @@ end
 function seed.run_in(program)
   return eval(program)
 end
-
-seed["nil"] = {"nil", nil}
-
-local function raw_defn(ops, name, macro)
-	seed[name] = {"fn", make_fn(ops, name, macro)}
-end
-
-seed._raw_defn = raw_defn
-
-local function deflua(ops, name, macro)
-	seed[name] = {"lua", make_fn(ops, name, macro)}
-end
-
-seed._deflua = deflua
 
 local function _do(...)
   local res = nil
