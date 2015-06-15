@@ -540,7 +540,7 @@ local function bind_all_(argnames, argvals, arity)
   uit.each(bind_once_, uit.zip(seq(argnames), seq(argvals)))
 end
 
-local function fn_(name, arglist, argnum, my_scope, ...)
+local function fn_(name, arglist, argnum, my_scope, is_macro, ...)
   local is_variadic = false
   if argnum > 1 then
     local s2l = arglist[argnum - 1]
@@ -555,9 +555,9 @@ local function fn_(name, arglist, argnum, my_scope, ...)
         seed.__scopes[#seed.__scopes + 1] = {}
         bind_all_(arglist, {...}, arity)
         return minirun(ft, 0, "call", my_scope)
-      end}, name)
+      end}, name, is_macro)
 end
-local function choose_fn_(name, my_scope, ...)
+local function choose_fn_(name, my_scope, is_macro, ...)
   local optab = {}
   for i=1, select('#', ...) do
     local current = (select(i, ...))[2]
@@ -581,26 +581,26 @@ local function choose_fn_(name, my_scope, ...)
       return minirun(ft, 0, "call", my_scope)
     end
   end
-  return make_fn(optab, name)
+  return make_fn(optab, name, is_macro)
 end
 
 local function fn(...)
   local nm = 'anonymous_fn'
   local arglist = select(1, ...)
   if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
-    return {"fn", fn_(nm, arglist[2], #arglist[2], #seed.__scopes, select(2, ...))}
+    return {"fn", fn_(nm, arglist[2], #arglist[2], #seed.__scopes, nil, select(2, ...))}
   elseif arglist[1] == 'quote' then
     nm = arglist[2]
     arglist = select(2, ...)
     if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
-      return {"fn", fn_(nm, arglist[2], #arglist[2], #seed.__scopes, select(3, ...))}
+      return {"fn", fn_(nm, arglist[2], #arglist[2], #seed.__scopes, nil, select(3, ...))}
     elseif arglist[1] == 'list' then
       -- multiple arglists and bodies
-      return {"fn", choose_fn_(nm, #seed.__scopes, select(2, ...))}
+      return {"fn", choose_fn_(nm, #seed.__scopes, nil, select(2, ...))}
     end
   elseif arglist[1] == 'list' then
     -- multiple arglists and bodies
-    return {"fn", choose_fn_(nm, #seed.__scopes, ...)}
+    return {"fn", choose_fn_(nm, #seed.__scopes, nil, ...)}
   end
   error("Declaring this fn failed because it does not match the expected structure:\n" .. pp.format({...}))
 end
@@ -610,6 +610,37 @@ raw_defn({[-1]=fn}, "fn", "special")
 local function defn(name, ...)
   return {'list',{{'id', 'def'},{'quote',name[2]},
       {'list',{{'id','fn'}, {'quote',name[2]}, ...}}}}
+end
+
+raw_defn({[-1]=defn}, "defn", true)
+
+local function defmacro_helper(name, value)
+  if seed.__module then
+    seed.__module[name[2]] = value
+  else
+    if seed[name[2]] ~= nil then error("Cannot define a new toplevel value for name because it already exists:\n" .. pp.format(name[2] ..
+          "\nExisting value for this name is:\n" .. pp.format(seed[name[2]])))
+    end
+    seed[name[2]] = value
+  end
+  return {'id', name[2]}
+end
+
+local function defmacro(name, ...)
+  local arglist = select(1, ...)
+  if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
+    seed.__macros[name[2]] = true
+    return defmacro_helper (name, {"fn", fn_(name, arglist[2], #arglist[2], #seed.__scopes, true, select(2, ...))})
+  elseif arglist[1] == 'list' then
+    seed.__macros[name[2]] = true
+    -- multiple arglists and bodies
+    return defmacro_helper(name, {"fn", choose_fn_(name, #seed.__scopes, true, ...)})
+  end
+  error("Declaring this macro failed because it does not match the expected structure:\n" .. pp.format({...}))
+end
+
+raw_defn({[-1]=defmacro}, "defmacro", "special")
+
 --[=[  
   local value = fn(...)
   if seed.__module then
@@ -622,9 +653,6 @@ local function defn(name, ...)
   end
   return value
   --]=]
-end
-
-raw_defn({[-1]=defn}, "defn", true)
 
 --[[
 local function lambda(args)

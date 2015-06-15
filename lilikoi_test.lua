@@ -143,11 +143,14 @@ check("(reduce + '(1 2 3))")
 check("(reduce + '(1 2 3 ~math.pi))")
 check("(reduce + (list 1 2 3 math.pi))")
 check("((fn ignore-first [x & ys] (reduce + ys)) 10 1 2 3)")
+
 check("((fn add-half ([x y] (+ x (/ y 2))) ([x & ys] (+ x (/ (reduce + ys) 2)))) 10 1 2 3)")
 check("(def twenty (+ 5 15)) ((fn add-half ([x y] (+ x (/ y 2))) ([x & ys] (+ x (/ (reduce + ys) 2)))) twenty 1 2 3)")
 
 check("(defn add-half [x y] (+ x (/ y 2))) (add-half 20 2)")
 check("(def twenty (+ 5 15)) (defn add-half ([x y] (+ x (/ y 2))) ([x & ys] (+ x (/ (reduce + ys) 2)))) (add-half twenty 1 2 3)")
+
+check("(defmacro split+ [[x y]] `(+ ~x ~y)) (split+ [10 5])")
 --[=[
 check('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})')
 check('(reduce #(str %1 (val %2)) ^[:what ever] {:a 1 :b 2})')
