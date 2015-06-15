@@ -68,7 +68,7 @@ local function transfer(capt, position)
         state[#state + 1] = transfer(term[4], 0)
       elseif term[1] == 'PREFIX' then
         if term[3][1] == "'" then
-          state[#state + 1] = '{"macro",{{"id","quote"},'
+          state[#state + 1] = '{"list",{{"id","quote"},'
           state[#state + 1] = transfer(term[3], 1)
         elseif term[3][1] == '$' then
           state[#state + 1] = '{"macro",{{"id","auto-gensym"},'
@@ -146,9 +146,10 @@ end
 
 function seed.transpile(llk, retain, debug_mode)
 	local lexed = grammar.lex(llk)
-	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run({{"id","do"},'
-  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run_in({{"id","do"},' end
-	lu = lu .. transfer(lexed) .. '})'
+  local codeseq = seed._macroexpand(assert(loadstring('return {{"id","do"},' .. transfer(lexed) .. '}'))())
+	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run('
+  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run_in(' end
+	lu = lu .. seed.str(codeseq, nil, nil, '"') .. ')'
   if debug_mode then
     local db = "return {{0,0}," .. debug_transfer(lexed) .. "}"
     return lu, db

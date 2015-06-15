@@ -251,25 +251,40 @@ seed["quote-id"] = {"fn", quote_id}
 seed.dequote = {"fn", dequote}
 
 local function macroexpand1(codeseq)
-  local newcode = {}
+  local newcode, expanded = {}, 0
   for i=1,#codeseq do
     local term = codeseq[i]
     if type(term[2]) == 'table' then
       if type(term[2][1]) == 'table' and (term[1] == 'macro' or
           (term[2][1][1] == 'id' and seed.__macros[term[2][1][2]] == true)) then
-          local op = table.remove(term[2], 1)
-          local args = term[2]
+        local op = table.remove(term[2], 1)
+        local args = term[2]
         newcode[i] = identify(op)[2](unpack(args))
+        expanded = expanded + 1
       else
-        newcode[i] = {term[1], macroexpand1(term[2])}
+        local inner, counter = macroexpand1(term[2])
+        newcode[i] = {term[1], inner}
+        expanded = expanded + counter
       end
     else
       newcode[i] = fp.clone(term)
     end
   end
-  return newcode
+  return newcode, expanded
 end
 
+seed["macroexpand-1"] = {"fn", macroexpand1, true}
+
+local function macroexpand(codeseq)
+  local code, expansions = macroexpand1(codeseq)
+  while expansions > 0 do
+    code, expansions = macroexpand1(code)
+  end
+  return code
+end
+
+seed._macroexpand = macroexpand
+seed.macroexpand = {"fn", macroexpand, true}
 
 -- reads a sequence of generated sexps and data from
 -- the specified codeseq, which should already have a program,
@@ -437,7 +452,7 @@ local function def(name, val)
   return value
 end
 
-raw_defn({[2]=def}, "def", true)
+raw_defn({[2]=def}, "def", "special")
 
 local function access(top, ...)
   local res = lookup({'id',top})
@@ -593,6 +608,9 @@ end
 raw_defn({[-1]=fn}, "fn", "special")
 
 local function defn(name, ...)
+  return {'list',{{'id', 'def'},{'quote',name[2]},
+      {'list',{{'id','fn'}, {'quote',name[2]}, ...}}}}
+--[=[  
   local value = fn(...)
   if seed.__module then
     seed.__module[name[2]] = value
@@ -603,6 +621,7 @@ local function defn(name, ...)
     seed[name[2]] = value
   end
   return value
+  --]=]
 end
 
 raw_defn({[-1]=defn}, "defn", true)
@@ -1084,6 +1103,7 @@ seed.file = file
 seed.os = os
 seed.string = string
 seed.print = print
+seed.str = pp.format
 seed.fp = fun
 
 return glue.autoload(seed,
