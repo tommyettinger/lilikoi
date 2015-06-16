@@ -4,16 +4,16 @@
 
 local lilikoi = {} --lilikoi namespace
 local seed = require'lilikoi.seed'
-function lilikoi.translate(code)
-    return seed.transpile(code)
+function lilikoi.translate(code, mod)
+    return seed.transpile(code, mod)
 end
 
-function lilikoi.run(code)
-    return seed.execute(code)
+function lilikoi.run(code, mod)
+    return seed.execute(code, mod)
 end
 
-function lilikoi.run_in(code)
-    return seed.execute_in(code)
+function lilikoi.run_in(code, mod)
+    return seed.execute_in(code, mod)
 end
 
 return lilikoi

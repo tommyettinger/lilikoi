@@ -43,10 +43,20 @@ local pp = require'pp'
 local fp = require'fun'
 
 local uit = fp.uit
-
+seed.__module_name = 'seed'
 seed.__scopes = {{}, {}}
 seed.__module = {}
-seed.__macros = {defmacro=true}
+seed.__macros = {defmacro='seed'}
+
+seed.gensym_counter = 13579
+
+seed.reset = function(modname)
+  if modname then seed.__module_name = modname end
+  seed.__scopes = {{}, {}}
+  seed.__module = {}
+  seed.__macros = fp.tomap(fp.filter(function(k, v) return v == 'seed' end, seed.__macros))
+  seed.gensym_counter = 13579
+end
 
 local true_id = {'boolean', true}
 local false_id = {'boolean', false}
@@ -79,7 +89,7 @@ seed.make_fn = {"lua", make_fn}
 local function raw_defn(ops, name, macro)
 	seed[name] = {"fn", make_fn(ops, name, macro)}
   if macro == true then
-    seed.__macros[name] = true
+    seed.__macros[name] = seed.__module_name
   end
 end
 
@@ -151,8 +161,22 @@ end
 
 seed["kw-get"] = {"lua", kw_get}
 
+local function gensym(prefix)
+  seed.gensym_counter = seed.gensym_counter + 1
+  prefix = type(prefix) == 'table' and prefix[2] or "GS"
+  return {'id', prefix .. "_-" .. seed.gensym_counter}
+end
+
+raw_defn({[0]=gensym,[1]=gensym}, 'gensym', true)
+
+local function auto_gensym(prefix)
+  return {'id', prefix[2] .. "_-\1", ['default']=gensym(prefix)}
+end
+
+raw_defn({[1]=auto_gensym}, "auto-gensym", true)
+
 local function lookup(t)
-  local name, max_scope = t[2], t[3]
+  local name, max_scope, special_default = t[2], t[3], t.default
   if name == 'seed' then return seed end
   
   if seed.__scopes[#seed.__scopes][name] ~= nil then
@@ -180,16 +204,24 @@ local function lookup(t)
     if type(ret) == 'table' then return ret end
     return {'lua',ret}
   end
+  
+  if special_default then
+    seed.__scopes[#seed.__scopes][name] = special_default
+    return special_default
+  end
+  
 	return nil
 end
 
-seed.lookup = {"fn", lookup}
+raw_defn({[1]=lookup}, 'lookup')
 
 local function _import(newname, oldname)
-  oldname = oldname or newname
-  seed[newname] = require(oldname)
-  return seed[newname]
+  oldname = oldname[2] or newname[2]
+  seed[newname[2]] = require(oldname)
+  return seed[newname[2]]
 end
+
+raw_defn({[1]=_import, [2]=_import}, 'import')
 
 local function is_identifier(t)
   if type(t) == 'table' and t[1] == 'id' then
@@ -256,11 +288,11 @@ local function macroexpand1(codeseq)
     local term = codeseq[i]
     if type(term[2]) == 'table' then
       if type(term[2][1]) == 'table' and (term[1] == 'macro' or
-          (term[2][1][1] == 'id' and seed.__macros[term[2][1][2]] == true)) then
+          (term[2][1][1] == 'id' and seed.__macros[term[2][1][2]])) then
         local op = table.remove(term[2], 1)
-        local args = term[2]
+        local args, counter = macroexpand1(term[2])
         newcode[i] = identify(op)[2](unpack(args))
-        expanded = expanded + 1
+        expanded = expanded + 1 + counter
       else
         local inner, counter = macroexpand1(term[2])
         newcode[i] = {term[1], inner}
@@ -410,8 +442,7 @@ seed.minirun = {"lua", minirun}
 -- completed with one return value) based on evaluating a codeseq.
 -- returns a bare value.
 function seed.run(program)
-	seed.__scopes = {{},{}}
-	seed.__module = {}
+  seed.reset()
   return unpack(strip_args(eval(program)))
 end
 
@@ -449,7 +480,7 @@ local function def(name, val)
     end
     seed[name[2]] = value
   end
-  return value
+  return {'id', name[2]}
 end
 
 raw_defn({[2]=def}, "def", "special")
@@ -492,6 +523,17 @@ local function count(t)
 end
 
 deflua({[1]=count}, "count")
+
+local function call(name, ...)
+  local f = lookup({'id', name})
+  if f and f[2] then
+    return f[2](...)
+  else
+    return nil
+  end
+end
+
+raw_defn({[-1]=call}, "call")
 
 deflua({[2]=function(f, coll) return uit.reduce(f, seq(coll)) end, 
      [3]=function(f, start, coll) return uit.foldl(f, start, seq(coll)) end }, "reduce")
@@ -608,8 +650,8 @@ end
 raw_defn({[-1]=fn}, "fn", "special")
 
 local function defn(name, ...)
-  return {'list',{{'id', 'def'},{'quote',name[2]},
-      {'list',{{'id','fn'}, {'quote',name[2]}, ...}}}}
+  return {'list',{{'id', 'def'},{'id',name[2]},
+      {'list',{{'id','fn'}, {'id',name[2]}, ...}}}}
 end
 
 raw_defn({[-1]=defn}, "defn", true)
@@ -629,10 +671,10 @@ end
 local function defmacro(name, ...)
   local arglist = select(1, ...)
   if type(arglist[1]) == 'table' and arglist[1].op == 'vector' then
-    seed.__macros[name[2]] = true
+    seed.__macros[name[2]] = seed.__module_name
     return defmacro_helper (name, {"fn", fn_(name, arglist[2], #arglist[2], #seed.__scopes, true, select(2, ...))})
   elseif arglist[1] == 'list' then
-    seed.__macros[name[2]] = true
+    seed.__macros[name[2]] = seed.__module_name
     -- multiple arglists and bodies
     return defmacro_helper(name, {"fn", choose_fn_(name, #seed.__scopes, true, ...)})
   end

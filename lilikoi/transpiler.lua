@@ -35,6 +35,7 @@ local function transfer(capt, position)
   local pos = position or 0
   while pos < #capt do
     pos = pos + 1
+    seed.gensym_counter = seed.gensym_counter + 1
     local term = capt[pos]
     local th = transfer_helper(term)
     if th then
@@ -144,11 +145,13 @@ local function debug_transfer(capt, position)
   end
 end
 
-function seed.transpile(llk, retain, debug_mode)
+function seed.transpile(llk, mod, retain, debug_mode)
+  if not mod then mod = 'default' end
+  seed.reset(mod)
 	local lexed = grammar.lex(llk)
   local codeseq = seed._macroexpand(assert(loadstring('return {{"id","do"},' .. transfer(lexed) .. '}'))())
-	local lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run('
-  if retain then lu = 'local __s=__s or require"lilikoi.seed"\nreturn __s.run_in(' end
+	local lu = 'local __s=__s or require"lilikoi.seed"\n__s.reset('.. mod ..')\nreturn __s.run('
+  if retain then lu = 'local __s=__s or require"lilikoi.seed"\n__s.reset('.. mod ..')\nreturn __s.run_in(' end
 	lu = lu .. seed.str(codeseq, nil, nil, '"') .. ')'
   if debug_mode then
     local db = "return {{0,0}," .. debug_transfer(lexed) .. "}"
@@ -158,12 +161,12 @@ function seed.transpile(llk, retain, debug_mode)
   end
 end
 
-function seed.execute(llk)
-	return assert(loadstring(seed.transpile(llk)))()
+function seed.execute(llk, mod)
+	return assert(loadstring(seed.transpile(llk, mod)))()
 end
 
-function seed.execute_in(llk)
-	return assert(loadstring(seed.transpile(llk, true)))()
+function seed.execute_in(llk, mod)
+	return assert(loadstring(seed.transpile(llk, mod, true)))()
 end
 
 return transpiler
