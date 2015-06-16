@@ -125,6 +125,7 @@ local function check(llk)
   pp(lil.translate(llk))
 	pp(lil.run(llk))
 end
+
 check("1")
 check('"abc"')
 check('#[[abc\ndef]]')
@@ -142,6 +143,7 @@ check('(reduce + [1 2 3 math.pi])')
 check("(reduce + '(1 2 3))")
 check("(reduce + '(1 2 3 ~math.pi))")
 check("(reduce + (list 1 2 3 math.pi))")
+
 check("((fn ignore-first [x & ys] (reduce + ys)) 10 1 2 3)")
 
 check("((fn add-half ([x y] (+ x (/ y 2))) ([x & ys] (+ x (/ (reduce + ys) 2)))) 10 1 2 3)")
@@ -151,6 +153,7 @@ check("(defn add-half [x y] (+ x (/ y 2))) (add-half 20 2)")
 check("(def twenty (+ 5 15)) (defn add-half ([x y] (+ x (/ y 2))) ([x & ys] (+ x (/ (reduce + ys) 2)))) (add-half twenty 1 2 3)")
 
 check("(defmacro split+ [[x y]] `(+ ~x ~y)) (split+ [10 5])")
+check("(defmacro bonus-plus ([x y] `(+ ~x ~y 1))) (bonus-plus 10 20)") -- ([x y & more] `(reduce + `(bonus-plus ~x ~y) ~more)
 --[=[
 check('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})')
 check('(reduce #(str %1 (val %2)) ^[:what ever] {:a 1 :b 2})')

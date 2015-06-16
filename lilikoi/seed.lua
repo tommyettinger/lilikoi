@@ -46,7 +46,7 @@ local uit = fp.uit
 
 seed.__scopes = {{}, {}}
 seed.__module = {}
-seed.__macros = {}
+seed.__macros = {defmacro=true}
 
 local true_id = {'boolean', true}
 local false_id = {'boolean', false}
@@ -310,7 +310,7 @@ local function eval(codeseq, quotelevel, kind, codify)
         if ql == 0 then
           arglist[i] = (identify(term)) or term
         else
-          arglist[i] = quote_id(term)
+          arglist[i] = term
         end
       end
     end
@@ -544,7 +544,7 @@ local function fn_(name, arglist, argnum, my_scope, is_macro, ...)
   local is_variadic = false
   if argnum > 1 then
     local s2l = arglist[argnum - 1]
-    if type(s2l) == 'table' and s2l[1] == 'quote' and s2l[2] == '&' then
+    if type(s2l) == 'table' and s2l[1] == 'id' and s2l[2] == '&' then
       is_variadic = true
     end
   end
@@ -567,7 +567,7 @@ local function choose_fn_(name, my_scope, is_macro, ...)
     local is_variadic = false
     if argnum > 1 then
       local s2l = arglist[argnum - 1]
-      if type(s2l) == 'table' and s2l[1] == 'quote' and s2l[2] == '&' then
+      if type(s2l) == 'table' and s2l[1] == 'id' and s2l[2] == '&' then
         is_variadic = true
       end
     end
