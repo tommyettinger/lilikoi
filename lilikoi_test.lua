@@ -158,6 +158,8 @@ check("(defmacro bonus-plus ([x y] `(+ ~x ~y 1)) ([x y & more] `(reduce + (bonus
 
 check("(def x 18) (def y 27) (defmacro bonus-plus ([$x $y] `(+ ~$x ~$y 1))) (bonus-plus 10 20)")
 check("(def $x 18) (def $y 27)(+ $x $y)")
+check("(defn add-half [x y] (+ x (/ y 2))) (add-half (+ 5 15) 2)")
+check("(let [twenty (+ 5 15)] (defn add-half-20 ([x y] (+ x twenty (/ y 2))) ([x & ys] (+ x twenty (/ (reduce + ys) 2)))) (add-half-20 twenty 1 2 3))")
 
 --[=[
 check('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})')
