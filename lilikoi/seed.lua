@@ -169,8 +169,23 @@ end
 
 raw_defn({[0]=gensym,[1]=gensym}, 'gensym', true)
 
-local function auto_gensym(prefix)
-  return {'id', prefix[2] .. "_-\1", ['default']=gensym(prefix)}
+local function auto_gensym(pre)
+  local prefix = pre[2]
+  for revi=#seed.__scopes, 1, -1 do
+    if seed.__scopes[revi]['\1auto_gensyms'] then
+      if seed.__scopes[revi]['\1auto_gensyms'][prefix] then
+        return seed.__scopes[revi]['\1auto_gensyms'][prefix]
+      end
+    end
+  end
+  local slen = #seed.__scopes
+  if seed.__scopes[slen]['\1auto_gensyms'] then
+    seed.__scopes[slen]['\1auto_gensyms'][prefix] = gensym(pre)
+    return seed.__scopes[slen]['\1auto_gensyms'][prefix]
+  else
+    seed.__scopes[slen]['\1auto_gensyms'] = {[prefix]=gensym(pre)}
+    return seed.__scopes[slen]['\1auto_gensyms'][prefix]
+  end
 end
 
 raw_defn({[1]=auto_gensym}, "auto-gensym", true)

@@ -157,6 +157,7 @@ check("(defmacro bonus-plus ([x y] `(+ ~x ~y 1))) (bonus-plus 10 20)")
 check("(defmacro bonus-plus ([x y] `(+ ~x ~y 1)) ([x y & more] `(reduce + (bonus-plus ~x ~y) ~more))) (bonus-plus 10 20 30)")
 
 check("(def x 18) (def y 27) (defmacro bonus-plus ([$x $y] `(+ ~$x ~$y 1))) (bonus-plus 10 20)")
+check("(def $x 18) (def $y 27)(+ $x $y)")
 
 --[=[
 check('(reduce #(str %1 (val %2)) "" {:a 1 :b 2})')
