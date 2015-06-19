@@ -227,8 +227,8 @@ grammar Rubyish::Grammar is HLL::Grammar {
     proto token value {*}
     token value:sym<string>  {<strings>}
     token strings            {:s<hs> <string> <strings>? }
-    token string             { <?[']> <quote_EXPR: ':q'>
-                             | <?["]> <quote_EXPR: ':qq'>
+    token string             { <?[\c[APOSTROPHE]]> <quote_EXPR: ':q'>
+                             | <?[\c[QUOTATION MARK]]> <quote_EXPR: ':qq'>
                              | \%[ q <?before [.]> <quote_EXPR: ':q'>
                                  | Q <?before [.]> <quote_EXPR: ':qq'>
                                  ]
@@ -243,7 +243,7 @@ grammar Rubyish::Grammar is HLL::Grammar {
     }
 
     token heredoc-line       {\n? [<!before ['#{']> \N]+ | \n }
-    token heredoc:sym<interp> {\" $<marker>=<- [\" \n]>+? \"\n
+    token heredoc:sym<interp> {\c[QUOTATION MARK] $<marker>=<- [\c[QUOTATION MARK] \n]>+? \c[QUOTATION MARK]\n
                                    [<text=.interp> | <text=.heredoc-line> ]*?
                                \n$<marker>$$
     }
