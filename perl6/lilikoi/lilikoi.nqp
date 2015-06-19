@@ -1,482 +1,46 @@
 use NQPHLL;
 
-# Ruby subset extended from the `rubyish` example, as introduced in the
-# Edument Rakudo and NQP internals course.
+grammar Lilikoi::Grammar is HLL::Grammar {
+  # Credit here goes to https://github.com/tokuhirom/Perl6-Renshu
+  token TOP {
+      :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+      :my $*TOP_BLOCK   := $*CUR_BLOCK;
+      ^ ~ $ <sexplist>
+          || <.panic('Syntax error')>
+  }
 
-my %CLASSES;
+  token variable { <-[\d\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]> <-[\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]>* }
+  token number {
+      $<sign>=[<[+\-]>?]
+      [ <dec_number> | <integer> ]
+  }
+  token interstr { '#' <?[\c[QUOTATION MARK]]> <quote_EXPR: ':qq'> }
+  token str { <?[\c[QUOTATION MARK]]> <quote_EXPR: ':q'> }
 
-class RubyishClassHOW {
-    has $!name;
-    has $!isa;
-    has %!methods;
+  token op { '~' | '+' | '-' | '*' | '/' }
+  proto token func {*}
+  rule func:sym<def> { '(' 'def' <variable> <exp> ')' }
+  # (if cond then else)
+  rule func:sym<if> { '(' 'if' <exp> <exp> <exp>? ')' }
+  rule func:sym<fn> { '(' 'fn' <variable>? '[' ~ ']' <series> <exp> ')' }
+  rule func:sym<fncall> { '(' <variable> <series> ')' }
 
-    method new_type(:$name!, :$isa?) {
-        nqp::die("duplicate class definition: $name")
-            if %CLASSES{ $name };
+  token series  { <exp>* }
 
-        my $obj := self.new(:$name, :$isa);
-        %CLASSES{ $name } := [$obj];
+  proto token exp {*}
 
-        nqp::newtype($obj, 'HashAttrStore');
-    }
+  token exp:sym<vector> { '[' ~ ']' <series> }
+  token exp:sym<set>  { '#{' ~ '}' <series> }
+  token exp:sym<hash>  { '{' ~ '}' <series> }
 
-    method add_method($obj, $name, $code) {
-        nqp::die("This class already has a method named " ~ $name)
-            if nqp::existskey(%!methods, $name);
-
-        %!methods{$name} := $code;
-    }
-
-    method find_method($obj, $name) {
-        my $method;
-
-        if nqp::substr($name, 0, 1) eq '^' {
-            # '^' prefix indicates a superclass lookup
-            $name := nqp::substr($name, 1);
-        }
-        else {
-           $method := %!methods{$name};
-        }
-
-        if !$method && $!isa {
-            my $super := %CLASSES{ $!isa };
-            nqp::die("unresolved super-class: " ~ $!isa)
-                unless $super;
-            $method := $super[0].find_method( $obj, $name);
-        }
-
-        $method // nqp::null();
-    }
+  rule exp:sym<func> { <func> }
+  rule exp:sym<number>  { <number>  }
+  rule exp:sym<str>  { <str>  }
+  rule exp:sym<variable>  { <variable>  }
+  rule sexplist { <exp>* }
 }
 
-grammar Rubyish::Grammar is HLL::Grammar {
-
-    token TOP {
-        :my $*CUR_BLOCK   := QAST::Block.new(QAST::Stmts.new());
-        :my $*TOP_BLOCK   := $*CUR_BLOCK;
-        :my $*CLASS_BLOCK := $*CUR_BLOCK;
-        :my $*IN_TEMPLATE := 0;
-        :my $*IN_PARENS   := 0;
-        :my %*SYM;                # symbols in current scope
-        :my %*SYM-GBL;            # globals and package variables
-        :my %*SYM-CLASS;          # class-inherited methods
-
-        ^ ~ $ <stmtlist>
-            || <.panic('Syntax error')>
-    }
-
-    rule separator       { ';' | \n <!after continuation> }
-    token continuation   { \\ \n }
-
-    rule stmtlist {
-        [ <stmt=.stmtish>? ] *%% [<.separator>|<stmt=.template-chunk>]
-    }
-
-    token stmtish {:s<hs>
-        <stmt> [ <modifier> <EXPR>]?
-    }
-
-    token modifier {if|unless|while|until}
-
-    proto token stmt {*}
-
-    token stmt:sym<def> {:s
-        :my %sym-save := nqp::clone(%*SYM);
-        :my $*DEF;
-
-        'def' ~ 'end' <defbody> {
-            %sym-save{$*DEF} := %*SYM{$*DEF};
-            %*SYM := %sym-save;
-        }
-    }
-
-    rule defbody {
-        :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
-        <operation> {
-            $*DEF := ~$<operation>;
-            if $*IN_CLASS {
-                %*SYM{$*DEF} := 'method';
-                %*SYM<self> := 'var';
-            }
-            else {
-                %*SYM{$*DEF} := 'func';
-            }
-        }
-        ['(' ~ ')' <signature>?]? <separator>?
-        <stmtlist>
-    }
-
-    rule comma { [','|'=>'] }
-
-    rule signature {
-        :my $*IN_PARENS := 1;
-        [ <param> | '*' <slurpy=.param> | '&' <func=.param> ] +% ','
-    }
-
-    token param {:s<hs>
-        <ident> [ $<named>=':' <EXPR>? | '=' <EXPR> ]? {
-            %*SYM{~$<ident>} := 'var'
-        }
-    }
-
-    token stmt:sym<class> {
-        :my $*IN_CLASS := 1;
-        :my @*METHODS;
-        :my %sym-save := nqp::clone(%*SYM);
-
-        [<sym> \h+] ~ [\h* 'end'] <classbody> {
-            %*SYM := %sym-save
-        }
-    }
-
-    rule classbody {
-        :my $*CUR_BLOCK   := QAST::Block.new(QAST::Stmts.new());
-        :my $*CLASS_BLOCK := $*CUR_BLOCK;
-
-        <ident> { $*CLASS_BLOCK.name(~$<ident>) }
-        [ '<' <super=.ident> { inherit-syms(~$<super>) } ]?
-        <separator>
-        <stmtlist> {
-            %*SYM-CLASS{~$<ident>} := %*SYM;
-        }
-    }
-
-    token stmt:sym<EXPR> { <EXPR> }
-    token term:sym<infix=> {:s<hs> <var> <OPER=infix> '=' <EXPR> }
-
-    token code-block {:s<hs>
-        :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
-        <closure>
-    }
-
-    our %builtins;
-    BEGIN {
-        %builtins := nqp::hash(
-            'abort',  'die',
-            'exit',   'exit',
-            'key',    'iterkey_s',
-            'delete', 'deletekey',
-            'value',  'iterval',
-            'print',  'print',
-            'puts',   'say',
-            'sleep',  'sleep',
-            );
-    }
-
-    token term:sym<call> {
-        <!keyword>
-        <operation> ['(' ~ ')' <call-args=.paren-args>? <code-block>?
-                    |:s<hs> <?{callable(~$<operation>)}> <call-args>?
-                    ]
-    }
-
-    token term:sym<super> {
-        'super' ['(' ~ ')' <call-args=.paren-args>? <code-block>?
-                |:s <call-args>?
-                ]
-        [
-          <?{$*IN_CLASS && $*DEF}>
-          || <.panic("'super' call outside of method")>
-        ]
-    }
-
-    token term:sym<nqp-op> {
-        'nqp::'<ident> ['(' ~ ')' <call-args=.paren-args>? | <call-args>? ]
-    }
-
-    token term:sym<quote-words> {
-        \%w <?before [.]> <quote_EXPR: ':q', ':w'>
-    }
-
-    token call-args  {:s<hs>
-         [ <arg> ] +% ','
-    }
-
-    proto token arg {*}
-
-    token arg:sym<expr>  {:s <EXPR> <!before ['=>'|':']> }
-    token arg:sym<func>  { '&' <EXPR> }
-    token arg:sym<keyw>  { <ident> ':' <EXPR> }
-    token arg:sym<hash>  {:s [ <EXPR> '=>' <EXPR> ]+ % ',' }
-
-    token paren-args {:my $*IN_PARENS := 1; <call-args> }
-
-    token operation  {<ident>[\!|\?]?}
-
-    token term:sym<new> {
-        ['new' \h+ <ident> | <ident> '.' 'new'] ['(' ~ ')' <call-args=.paren-args>?]?
-    }
-
-    token var {
-        :my $*MAYBE_DECL := 0;
-        \+?
-        $<var>=[  $<sigil>=[ \$ | \@ ] <ident>
-               |  [ <pkg=.ident>? '::' ]? <?before <[A..Z]>> <const=ident>
-               || <!keyword> <ident> <!before [ \! | \? | <hs>\( ]>
-               ]
-        [  <?before <hs> <bind-op> { $*MAYBE_DECL := 1 }>
-        || <?{ variable(~$<var>) || ~$<sigil> eq '@' }>
-        || <!{ callable(~$<var>) }> <.panic("unknown variable or method: $<var>")>
-        ]
-    }
-
-    token term:sym<var>   { <var> }
-
-    token term:sym<value> { \+? <value> }
-
-    proto token value {*}
-    token value:sym<string>  {<strings>}
-    token strings            {:s<hs> <string> <strings>? }
-    token string             { <?[\c[APOSTROPHE]]> <quote_EXPR: ':q'>
-                             | <?[\c[QUOTATION MARK]]> <quote_EXPR: ':qq'>
-                             | \%[ q <?before [.]> <quote_EXPR: ':q'>
-                                 | Q <?before [.]> <quote_EXPR: ':qq'>
-                                 ]
-                             }
-
-    token value:sym<heredoc> {'<<'<heredoc>}
-
-    proto token heredoc {*}
-    token heredoc:sym<literal>  {[$<marker>=<.ident> | \' $<marker>=<- [\' \n]>+? \' ]\n
-                                     $<text>=.*?
-                                 \n$<marker>$$
-    }
-
-    token heredoc-line       {\n? [<!before ['#{']> \N]+ | \n }
-    token heredoc:sym<interp> {\c[QUOTATION MARK] $<marker>=<- [\c[QUOTATION MARK] \n]>+? \c[QUOTATION MARK]\n
-                                   [<text=.interp> | <text=.heredoc-line> ]*?
-                               \n$<marker>$$
-    }
-
-    token paren-list {
-         :my $*IN_PARENS := 1;
-         <EXPR> *%% <comma>
-    }
-
-    token value:sym<integer> { \d+ }
-    token value:sym<float>   { \d* '.' \d+ }
-    token value:sym<array>   {'[' ~ ']' <paren-list> }
-    token value:sym<hash>    {'{' ~ '}' <paren-list> }
-    token value:sym<nil>     { <sym> }
-    token value:sym<true>    { <sym> }
-    token value:sym<false>   { <sym> }
-
-    # Interpolation
-    token interp      { '#{' ~ '}' [ [:s<hs> <stmtlist> ]
-                                    || <panic('string interpolation error')> ]
-                       }
-    token quote_escape:sym<#{ }> { <?quotemod_check('s')> <interp>  }
-
-    # Reserved words.
-    token keyword {
-        [ BEGIN     | class     | ensure    | nil       | new       | when
-        | END       | def       | false     | not       | super     | while
-        | alias     | defined   | for       | or        | then      | yield
-        | and       | do        | if        | redo      | true
-        | begin     | else      | in        | rescue    | undef
-        | break     | elsif     | module    | retry     | unless
-        | case      | end       | next      | return    | until
-        | eq | ne   | lt | gt   | le | ge   | cmp
-        ] <!ww>
-    }
-
-    INIT {
-        # Operator precedence levels
-        # see http://www.tutorialspoint.com/ruby/ruby_operators.htm
-        # y: **
-        Rubyish::Grammar.O(':prec<y=>, :assoc<left>',  '%exponentiation');
-        # x: ! ~ + - (unary)
-        Rubyish::Grammar.O(':prec<x=>, :assoc<unary>', '%unary');
-        # w: * / %
-        Rubyish::Grammar.O(':prec<w=>, :assoc<left>',  '%multiplicative');
-        # u: + -
-        Rubyish::Grammar.O(':prec<u=>, :assoc<left>',  '%additive');
-        # t: >> <<
-        Rubyish::Grammar.O(':prec<t=>, :assoc<left>',  '%bitshift');
-        # s: &
-        Rubyish::Grammar.O(':prec<s=>, :assoc<left>',  '%bitand');
-        # r: ^ |
-        Rubyish::Grammar.O(':prec<r=>, :assoc<left>',  '%bitor');
-        # q: <= < > >= le lt gt ge
-        Rubyish::Grammar.O(':prec<q=>, :assoc<left>',  '%comparison');
-        # n: <=> == === != =~ !~ eq ne cmp
-        Rubyish::Grammar.O(':prec<n=>, :assoc<left>',  '%equality');
-        # l: &&
-        Rubyish::Grammar.O(':prec<l=>, :assoc<left>',  '%logical_and');
-        # k: ||
-        Rubyish::Grammar.O(':prec<k=>, :assoc<left>',  '%logical_or');
-        # q: ?:
-        Rubyish::Grammar.O(':prec<g=>, :assoc<right>', '%conditional');
-        # f: = %= { /= -= += |= &= >>= <<= *= &&= ||= **=
-        Rubyish::Grammar.O(':prec<f=>, :assoc<right>', '%assignment');
-        # e: not (unary)
-        Rubyish::Grammar.O(':prec<e=>, :assoc<unary>', '%loose_not');
-        # c: or and
-        Rubyish::Grammar.O(':prec<c=>, :assoc<left>',  '%loose_logical');
-    }
-
-    # Operators - mostly stolen from NQP
-    token infix:sym<**> { <sym>  <O('%exponentiation, :op<pow_n>')> }
-
-    token prefix:sym<-> { <sym><![>]>  <O('%unary, :op<neg_n>')> }
-    token prefix:sym<!> { <sym>  <O('%unary, :op<not_i>')> }
-
-    token infix:sym<*>  { <sym> <O('%multiplicative, :op<mul_n>')> }
-    token infix:sym</>  { <sym> <O('%multiplicative, :op<div_n>')> }
-    token infix:sym<%>  { <sym><![>]> <O('%multiplicative, :op<mod_n>')> }
-
-    token infix:sym<+>  { <sym> <O('%additive, :op<add_n>')> }
-    token infix:sym<->  { <sym> <O('%additive, :op<sub_n>')> }
-    token infix:sym<~>  { <sym> <O('%additive, :op<concat>')> }
-
-    token infix:sym«<<»   { <sym>  <O('%bitshift, :op<bitshiftl_i>')> }
-    token infix:sym«>>»   { <sym>  <O('%bitshift, :op<bitshiftr_i>')> }
-
-    token infix:sym<&>  { <sym> <O('%bitand, :op<bitand_i>')> }
-    token infix:sym<|>  { <sym> <O('%bitor,  :op<bitor_i>')> }
-    token infix:sym<^>  { <sym> <O('%bitor,  :op<bitxor_i>')> }
-
-    token infix:sym«<=»   { <sym><![>]>  <O('%comparison, :op<isle_n>')> }
-    token infix:sym«>=»   { <sym>  <O('%comparison, :op<isge_n>')> }
-    token infix:sym«<»    { <sym>  <O('%comparison, :op<islt_n>')> }
-    token infix:sym«>»    { <sym>  <O('%comparison, :op<isgt_n>')> }
-    token infix:sym«le»   { <sym>  <O('%comparison, :op<isle_s>')> }
-    token infix:sym«ge»   { <sym>  <O('%comparison, :op<isge_s>')> }
-    token infix:sym«lt»   { <sym>  <O('%comparison, :op<islt_s>')> }
-    token infix:sym«gt»   { <sym>  <O('%comparison, :op<isgt_s>')> }
-
-    token infix:sym«==»   { <sym>  <O('%equality, :op<iseq_n>')> }
-    token infix:sym«!=»   { <sym>  <O('%equality, :op<isne_n>')> }
-    token infix:sym«<=>»  { <sym>  <O('%equality, :op<cmp_n>')> }
-    token infix:sym«eq»   { <sym>  <O('%equality, :op<iseq_s>')> }
-    token infix:sym«ne»   { <sym>  <O('%equality, :op<isne_s>')> }
-    token infix:sym«cmp»  { <sym>  <O('%equality, :op<cmp_s>')> }
-
-    token infix:sym<&&>   { <sym>  <O('%logical_and, :op<if>')> }
-    token infix:sym<||>   { <sym>  <O('%logical_or,  :op<unless>')> }
-
-    token infix:sym<? :> {:s '?' <EXPR('i=')>
-                             ':' <O('%conditional, :reducecheck<ternary>, :op<if>')>
-    }
-
-    token bind-op     {'='<![>]>}
-    token infix:sym<=>  { <.bind-op> <O('%assignment, :op<bind>')> }
-
-    token prefix:sym<not> { <sym>  <O('%loose_not,     :op<not_i>')> }
-    token infix:sym<and>  { <sym>  <O('%loose_logical, :op<if>')> }
-    token infix:sym<or>   { <sym>  <O('%loose_logical, :op<unless>')> }
-
-    # Parenthesis
-    token circumfix:sym<( )> { :my $*IN_PARENS := 1;
-                               '(' ~ ')' <EXPR> <O('%methodop')> }
-
-    # Method call
-    token postfix:sym<.>  {
-        '.' <operation> [ '(' ~ ')' <call-args=.paren-args>? ]?
-        <O('%methodop')>
-    }
-
-    # Array and hash indices
-    token postcircumfix:sym<[ ]> { '[' ~ ']' [ <EXPR> ] <O('%methodop')> }
-    token postcircumfix:sym<{ }> { '{' ~ '}' [ <EXPR> ] <O('%methodop')> }
-    token postcircumfix:sym<ang> {
-        <?[<]> <quote_EXPR: ':q'>
-        <O('%methodop')>
-    }
-
-    # Statement control
-    rule xblock {:s<hs>
-        <EXPR> [ <separator> 'then'? | 'then' | <?before <tmpl-unesc>>] <stmtlist>
-    }
-
-    token stmt:sym<cond> {:s
-        $<op>=[if|unless] ~ 'end' [ <xblock> [<else=.elsif>|<else>]? ]
-    }
-
-    token elsif {:s
-        'elsif' ~ [<else=.elsif>|<else>]? <xblock>
-    }
-
-    token else {:s
-         'else' <stmtlist>
-    }
-
-    token stmt:sym<loop> {:s
-        $<op>=[while|until] <EXPR> <do-block>
-    }
-
-    token stmt:sym<for> {:s
-        <sym> <ident> 'in' <EXPR> {
-            %*SYM{~$<ident>} := 'var'
-        }
-        <do-block>
-    }
-
-    token do-block { <do> ~ 'end' <stmtlist> }
-
-    token do {:s<hs>
-        <separator> 'do'? | 'do' | <?before <tmpl-unesc>>
-    }
-
-    token term:sym<code> {
-        'begin' ~ 'end' <stmtlist>
-    }
-
-    token closure  {:s ['{'  ['|' ~ '|' <signature>?]? ]  ~ '}'   <stmtlist>
-                   |:s ['do' ['|' ~ '|' <signature>?]? ]  ~ 'end' <stmtlist> }
-    token closure2 {:s ['(' ~ ')' <signature>? ]? '{' ~ '}' <stmtlist> }
-
-    token term:sym<lambda> {:s
-        :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
-        ['lambda' <closure>
-        | '->' <closure=.closure2>
-        ]
-    }
-
-    # Comments and whitespace
-    proto token comment {*}
-    token comment:sym<line>   { '#' [<?{!$*IN_TEMPLATE}> \N* || [<!before <tmpl-unesc>>\N]*] }
-    token comment:sym<podish> {[^^'=begin'\n] [ .*? [^^'=end'[\n|$]] || <.panic('missing ^^=end at eof')>] }
-    token ws { <!ww> [\h | <.continuation> | <.comment> | <?{$*IN_PARENS}> \n]* }
-    token hs { <!ww> [\h | <.continuation> ]* }
-
-    # Templates
-    token template-chunk { [<tmpl-unesc>|<tmpl-hdr>] ~ [<tmpl-esc>|$] <template-nibble>* }
-    proto token template-nibble {*}
-    token template-nibble:sym<interp>     { <interp> }
-    token template-nibble:sym<stray-tag>  { [<.tmpl-unesc>|<.tmpl-hdr>] <.panic("Stray tag, e.g. '%>' or '<?rbi?>'")> }
-    token template-nibble:sym<literal> { [<!before [<tmpl-esc>|'#{'|$]> .]+ }
-
-    token tmpl-hdr   {'<?rbi?>' \h* \n? {$*IN_TEMPLATE := 1} }
-    token tmpl-esc   {\h* '<%'
-                     [<?{$*IN_TEMPLATE}> || <.panic('Template directive precedes "<?rbi?>"')>]
-    }
-    token tmpl-unesc { '%>' \h* \n?
-                     [<?{$*IN_TEMPLATE}> || <.panic('Template directive precedes "<?rbi?>"')>]
-    }
-
-    # Functions
-    sub callable($op) {
-       my $type := %*SYM{$op} // (%builtins{$op} && 'func');
-
-       $type && ($type eq 'func' || $type eq 'method');
-    }
-
-    sub variable($op) {
-       my $type := %*SYM{$op} // %*SYM-GBL{$op};
-
-       $type && ($type eq 'var');
-    }
-
-    sub inherit-syms($class) {
-        if my %syms := %*SYM-CLASS{$class} {
-            %*SYM{$_} := %syms{$_}
-                for %syms;
-        }
-    }
-}
-
-class Rubyish::Actions is HLL::Actions {
+class Lilikoi::Actions is HLL::Actions {
 
     method TOP($/) {
         $*CUR_BLOCK.push($<stmtlist>.ast);
@@ -505,7 +69,7 @@ class Rubyish::Actions is HLL::Actions {
 
     method term:sym<call>($/) {
         my $name  := ~$<operation>;
-        my $op    := %Rubyish::Grammar::builtins{$name};
+        my $op    := %Lilikoi::Grammar::builtins{$name};
 
         my $call;
 
@@ -593,7 +157,7 @@ class Rubyish::Actions is HLL::Actions {
         make $args;
     }
 
-    method paren-args($/) {
+    method series($/) {
         make $<call-args>.ast;
     }
 
@@ -785,7 +349,7 @@ class Rubyish::Actions is HLL::Actions {
 
         my $new_type :=  QAST::Op.new(
                 :op('callmethod'), :name('new_type'),
-                QAST::WVal.new( :value(RubyishClassHOW) ),
+                QAST::WVal.new( :value(LilikoiClassHOW) ),
                 QAST::SVal.new( :value(~$<classbody><ident>), :named('name') ),
           );
 
@@ -876,7 +440,7 @@ class Rubyish::Actions is HLL::Actions {
         make QAST::NVal.new( :value(+$/.Str) )
     }
 
-    method paren-list($/) {
+    method series($/) {
         my @list;
         if $<EXPR> {
             @list.push($_.ast) for $<EXPR>
@@ -886,7 +450,7 @@ class Rubyish::Actions is HLL::Actions {
 
     method value:sym<array>($/) {
         my $array := QAST::Op.new( :op<list> );
-        $array.push($_) for $<paren-list>.ast;
+        $array.push($_) for $<series>.ast;
         make $array;
     }
 
@@ -896,7 +460,7 @@ class Rubyish::Actions is HLL::Actions {
 
     method value:sym<hash>($/) {
         my $hash := QAST::Op.new( :op<hash> );
-        $hash.push($_) for $<paren-list>.ast;
+        $hash.push($_) for $<series>.ast;
         make $hash;
     }
 
@@ -1025,7 +589,7 @@ class Rubyish::Actions is HLL::Actions {
 
 }
 
-class Rubyish::Compiler is HLL::Compiler {
+class Lilikoi::Compiler is HLL::Compiler {
 
     method eval($code, *@_args, *%adverbs) {
         my $output := self.compile($code, :compunit_ok(1), |%adverbs);
@@ -1045,9 +609,9 @@ class Rubyish::Compiler is HLL::Compiler {
 }
 
 sub MAIN(*@ARGS) {
-    my $comp := Rubyish::Compiler.new();
-    $comp.language('rubyish');
-    $comp.parsegrammar(Rubyish::Grammar);
-    $comp.parseactions(Rubyish::Actions);
+    my $comp := Lilikoi::Compiler.new();
+    $comp.language('lilikoi');
+    $comp.parsegrammar(Lilikoi::Grammar);
+    $comp.parseactions(Lilikoi::Actions);
     $comp.command_line(@ARGS, :encoding('utf8'));
 }
