@@ -9,101 +9,213 @@ grammar Lilikoi::Grammar is HLL::Grammar {
           || <.panic('Syntax error')>
   }
 
-  token variable { <-[\d\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]> <-[\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]>* }
-  token number {
-      $<sign>=[<[+\-]>?]
-      [ <dec_number> | <integer> ]
-  }
+  proto token value {*}
+  token id { <-[\d\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]> <-[\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]>* }
+  token var { <id> }
+  token value:sym<var> { <var> }
+  token value:sym<nil>     { <sym> }
+  token value:sym<true>    { <sym> }
+  token value:sym<false>   { <sym> }
+
+  token value:sym<int> { $<sign>=[<[+\-]>?] <integer> }
+  token value:sym<dec> { $<sign>=[<[+\-]>?] <dec_number> }
+  token value:sym<string> { <interstr> | <str> }
   token interstr { '#' <?[\c[QUOTATION MARK]]> <quote_EXPR: ':qq'> }
   token str { <?[\c[QUOTATION MARK]]> <quote_EXPR: ':q'> }
 
-  token op { '~' | '+' | '-' | '*' | '/' }
-  proto token func {*}
-  rule func:sym<def> { '(' 'def' <variable> <exp> ')' }
+  proto rule func {*}
+  rule func:sym<def> {
+    :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+    :my %sym-save := nqp::clone(%*SYM);
+    :my $*DEF;
+    '(' 'def' <id> ~ ')' <defbody> {
+        %sym-save{$*DEF} := %*SYM{$*DEF};
+        %*SYM := %sym-save;
+    }
+  }
+
+  rule defbody {
+      <id> {
+          $*DEF := ~$<id>;
+          %*SYM{$*DEF} := 'func';
+      }
+      <exp>
+  }
+
+  rule func:sym<fn> {
+    :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+    '(' 'fn' ~ ')' <fnbody>
+  }
+
+  rule fnbody {
+      <id>? {
+          %*SYM{~$<id>} := 'func'
+      }
+      [ '[' ~ ']' <signature>? ]
+      <sexplist>
+  }
+
+  rule signature {
+      [ <param> | '&' <slurpy=.param> ] +
+  }
+
+  token param {
+      <id> {
+          %*SYM{~$<id>} := 'var'
+      }
+  }
+
   # (if cond then else)
-  rule func:sym<if> { '(' 'if' <exp> <exp> <exp>? ')' }
-  rule func:sym<fn> { '(' 'fn' <variable>? '[' ~ ']' <series> <exp> ')' }
-  rule func:sym<fncall> { '(' <variable> <series> ')' }
+  rule func:sym<if> {
+    :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+    '(' 'if' <exp> <exp> <exp>? ')'
+  }
 
-  token series  { <exp>* }
+  rule func:sym<call> {
+    :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+    '(' <var> ~ ')' <call-args=.series>
+  }
 
-  proto token exp {*}
+  rule series  { <exp>* }
 
-  token exp:sym<vector> { '[' ~ ']' <series> }
-  token exp:sym<set>  { '#{' ~ '}' <series> }
-  token exp:sym<hash>  { '{' ~ '}' <series> }
+  rule vector { '[' ~ ']' <series> }
+  rule hashmap { '{' ~ '}' <series> }
+
+  proto token comment {*}
+  token comment:sym<line>   { ';' [ \N* ] }
+  token comment:sym<discard> { '#_' <.exp> }
+
+  token ws { <!after <variable>> <!before <variable>> [\s | ',' | <.comment> ]* }
+
+  proto rule exp {*}
+
+  rule exp:sym<vector> { <vector> }
+  rule exp:sym<set>  { '#{' ~ '}' <series> }
+  rule exp:sym<hash>  { <hashmap> }
 
   rule exp:sym<func> { <func> }
-  rule exp:sym<number>  { <number>  }
-  rule exp:sym<str>  { <str>  }
-  rule exp:sym<variable>  { <variable>  }
+  rule exp:sym<value> { <value> }
+
   rule sexplist { <exp>* }
 }
 
 class Lilikoi::Actions is HLL::Actions {
 
-    method TOP($/) {
-        $*CUR_BLOCK.push($<stmtlist>.ast);
-        make QAST::CompUnit.new( $*CUR_BLOCK );
+  method TOP($/) {
+      $*CUR_BLOCK.push($<sexplist>.ast);
+      make QAST::CompUnit.new( $*CUR_BLOCK );
+  }
+  method sexplist($/) {
+      my $stmts := QAST::Stmts.new( :node($/) );
+
+      if $<exp> {
+          for $<exp> {
+              $stmts.push($_.ast)
+          }
+      }
+
+      make $stmts;
+  }
+
+
+  method exp:sym<value>($/) { make $<value>.ast; }
+
+  method value:sym<int>($/) {
+    make QAST::IVal.new( :value(+$/.Str) )
+  }
+
+  method value:sym<dec>($/) {
+    make QAST::NVal.new( :value(+$/.Str) )
+  }
+
+  method value:sym<string>($/) {
+    make $<quote_EXPR>.ast;
+  }
+
+  method value:sym<nil>($/) {
+    make QAST::Op.new( :op<null> );
+  }
+
+  method value:sym<true>($/) {
+    make QAST::IVal.new( :value<1> );
+  }
+
+  method value:sym<false>($/) {
+    make QAST::IVal.new( :value<0> );
+  }
+
+  method var($/) {
+    my $name  := ~$<var>;
+
+    make QAST::Var.new( :name($name), :scope('lexical') );
+  }
+
+  method func:sym<def>($/) {
+    my $name  := ~$<var>;
+    my $block := $*CUR_BLOCK;
+    my $decl := 'var';
+
+    my %sym  := $block.symbol($name);
+    if !%sym<declared> {
+        %*SYM{$name} := 'var';
+        $block.symbol($name, :declared(1), :scope('lexical') );
+        my $var := QAST::Var.new( :name($name), :scope('lexical'),
+                                  :decl($decl) );
+        $block[0].push($var);
     }
+    make QAST::Var.new( :name($name), :scope('lexical') );
+  }
 
-    method stmtlist($/) {
-        my $stmts := QAST::Stmts.new( :node($/) );
+  method value:sym<var>($/) { make $<var>.ast }
 
-        $stmts.push($_.ast)
-            for @<stmt>;
+  method closure($/) {
+    $*CUR_BLOCK.name(~$<id>);
+    $*CUR_BLOCK.push($<sexplist>.ast);
+    make QAST::Op.new(:op<takeclosure>, $*CUR_BLOCK );
+  }
 
-        make $stmts;
-    }
+  method func:sym<fn>($/) { make $<closure>.ast }
 
-    method stmtish($/) {
-        make $<modifier>
-            ?? QAST::Op.new( $<EXPR>.ast, $<stmt>.ast,
-                             :op(~$<modifier>), :node($/) )
-            !! $<stmt>.ast;
-    }
+  method param($/) {
+     my $var := QAST::Var.new(
+         :name(~$<ident>), :scope('lexical'), :decl('param')
+        );
+     $var.named(~$<ident>)
+         if $<named>;
 
-    method term:sym<value>($/) { make $<value>.ast; }
+     $*CUR_BLOCK.symbol('self', :declared(1));
+
+     $var.default( $<EXPR>.ast )
+        if $<EXPR>;
+
+     make $var;
+  }
+
+  method signature($/) {
+      my @params;
+
+      @params.push($_.ast)
+          for @<param>;
+
+      if $<slurpy> {
+          @params.push($<slurpy>[0].ast);
+          @params[-1].slurpy(1);
+      }
+
+      for @params {
+          $*CUR_BLOCK[0].push($_) unless $_.named;
+          $*CUR_BLOCK.symbol($_.name, :declared(1));
+      }
+  }
+
+
 
     method code-block($/) { make $<closure>.ast }
 
-    method term:sym<call>($/) {
+    method func:sym<call>($/) {
         my $name  := ~$<operation>;
-        my $op    := %Lilikoi::Grammar::builtins{$name};
 
-        my $call;
-
-        if $op {
-            $call := QAST::Op.new( :op($op) )
-        }
-        elsif %*SYM{$name} eq 'method' && $*DEF {
-            $call := QAST::Op.new( :op('callmethod'),
-                                   QAST::Var.new( :name('self'), :scope('lexical')),
-                                   QAST::SVal.new( :value($name) ),
-                );
-        }
-        else {
-            $call := QAST::Op.new( :op('call'), :name($name) );
-        }
-
-        if $<call-args> {
-            $call.push($_)
-                for $<call-args>.ast;
-        }
-
-        $call.push( $<code-block>.ast )
-            if $<code-block>;
-
-        make $call;
-    }
-
-    method term:sym<super>($/) {
-        my $name  := ~$*DEF;
-
-        my $call := QAST::Op.new( :op('callmethod'),
-                                  QAST::Var.new( :name('self'), :scope('lexical')),
-                                  QAST::SVal.new( :value('^' ~ $name) ),
-            );
+        my $call := QAST::Op.new( :op('call'), :name($name) );
 
         if $<call-args> {
             $call.push($_)
@@ -157,236 +269,6 @@ class Lilikoi::Actions is HLL::Actions {
         make $args;
     }
 
-    method series($/) {
-        make $<call-args>.ast;
-    }
-
-    method term:sym<new>($/) {
-
-        my $tmp-obj := '$new-obj$';
-
-        my $init-call := QAST::Op.new( :op<callmethod>,
-                                       :name<initialize>,
-                                       QAST::Var.new( :name($tmp-obj), :scope<lexical> )
-            );
-
-        if $<call-args> {
-            $init-call.push($_)
-                for $<call-args>.ast;
-        }
-
-        my $init-block := QAST::Block.new( QAST::Stmts.new(
-
-            # pseudo-code:
-            #
-            # def new(*call-args)
-            #     $new-obj$ = Class.new;
-            #     if call-args then
-            #        # always try to call initialize, when new has arguments
-            #        $new-obj$.initialize(call-args)
-            #     else
-            #        $new-obj$.initialize() \
-            #           if $new-obj$.can('initialize')
-            #     end
-            #     return $new-obj$
-            # end
-
-            # create the new object
-            QAST::Op.new( :op('bind'),
-                          QAST::Var.new( :name($tmp-obj), :scope<lexical>, :decl<var>),
-                          QAST::Op.new(
-                              :op('create'),
-                              QAST::Var.new( :name('::' ~ ~$<ident>), :scope('lexical') )
-                          ),
-            ),
-
-            # call initialize method, if available
-            ($<call-args>
-             ?? $init-call
-             !! QAST::Op.new( :op<if>,
-                              QAST::Op.new( :op<can>,
-                                            QAST::Var.new( :name($tmp-obj), :scope<lexical> ),
-                                            QAST::SVal.new( :value<initialize> )),
-                              $init-call,
-             )
-            ),
-
-            # return the new object
-            QAST::Var.new( :name($tmp-obj), :scope<lexical> ),
-        ));
-
-        $init-block.blocktype('immediate');
-        make $init-block;
-    }
-
-    method var($/) {
-        my $sigil := ~$<sigil> // '';
-        my $name  := ~$<var>;
-
-        if $sigil eq '@' && $*IN_CLASS && $*DEF {
-            # instance variable, bound to self
-            my $package-name := $*CLASS_BLOCK.name;
-            make QAST::Var.new( :name($name), :scope('attribute'),
-                                QAST::Var.new( :name('self'), :scope('lexical')),
-                                QAST::SVal.new( :value($package-name) )
-                );
-        }
-        else {
-            if $<const> {
-                my $ns := $<pkg> ?? ~$<pkg> !! $*CLASS_BLOCK.name;
-                $name := $ns ~ '::' ~ $<ident>;
-            }
-
-            if $*MAYBE_DECL {
-
-                my $block;
-                my $decl := 'var';
-
-                if $sigil eq '$' || $<const> {
-                    $block := $*TOP_BLOCK;
-                    %*SYM-GBL{$name} := 'var';
-                    %*SYM{~$<ident>} := 'var'
-                        if $<const>;
-                }
-                elsif $sigil eq '@' {
-                    $block := $*CLASS_BLOCK;
-                }
-                else {
-                    $block := $*CUR_BLOCK;
-                }
-
-                my %sym  := $block.symbol($name);
-                if !%sym<declared> {
-                    %*SYM{$name} := 'var';
-                    $block.symbol($name, :declared(1), :scope('lexical') );
-                    my $var := QAST::Var.new( :name($name), :scope('lexical'),
-                                              :decl($decl) );
-                    $block[0].push($var);
-                }
-            }
-
-            make QAST::Var.new( :name($name), :scope('lexical') );
-        }
-    }
-
-    method term:sym<var>($/) { make $<var>.ast }
-
-    method stmt:sym<def>($/) {
-        my $install := $<defbody>.ast;
-        $*CUR_BLOCK[0].push(QAST::Op.new(
-            :op('bind'),
-            QAST::Var.new( :name($install.name), :scope('lexical'), :decl('var') ),
-            $install
-        ));
-        if $*IN_CLASS {
-            @*METHODS.push($install);
-        }
-        make QAST::Op.new( :op('null') );
-    }
-
-    method defbody($/) {
-        $*CUR_BLOCK.name(~$<operation>);
-        $*CUR_BLOCK.push($<stmtlist>.ast);
-        if $*IN_CLASS {
-            # it's a method, self will be automatically passed
-            $*CUR_BLOCK[0].unshift(QAST::Var.new(
-                :name('self'), :scope('lexical'), :decl('param')
-            ));
-            $*CUR_BLOCK.symbol('self', :declared(1));
-        }
-
-        make $*CUR_BLOCK;
-    }
-
-    method param($/) {
-       my $var := QAST::Var.new(
-           :name(~$<ident>), :scope('lexical'), :decl('param')
-          );
-       $var.named(~$<ident>)
-           if $<named>;
-
-       $*CUR_BLOCK.symbol('self', :declared(1));
-
-       $var.default( $<EXPR>.ast )
-          if $<EXPR>;
-
-       make $var;
-    }
-
-    method signature($/) {
-        my @params;
-
-        @params.push($_.ast)
-            for @<param>;
-
-        if $<slurpy> {
-            @params.push($<slurpy>[0].ast);
-            @params[-1].slurpy(1);
-        }
-
-        if $<func> {
-            @params.push($<func>[0].ast);
-            @params[-1].default(QAST::Op.new( :op<null> ));
-        }
-
-        for @params {
-            $*CUR_BLOCK[0].push($_) unless $_.named;
-            $*CUR_BLOCK.symbol($_.name, :declared(1));
-         }
-
-         # nqp #179 named arguments need to follow positional parameters
-         for @params {
-            $*CUR_BLOCK[0].push($_) if $_.named;
-         }
-    }
-
-    method stmt:sym<class>($/) {
-        my $body_block := $<classbody>.ast;
-
-        # Generate code to create the class.
-        my $class_stmts := QAST::Stmts.new( $body_block );
-        my $ins_name    := '::' ~ $<classbody><ident>;
-
-        my $new_type :=  QAST::Op.new(
-                :op('callmethod'), :name('new_type'),
-                QAST::WVal.new( :value(LilikoiClassHOW) ),
-                QAST::SVal.new( :value(~$<classbody><ident>), :named('name') ),
-          );
-
-        $new_type.push( QAST::SVal.new( :value(~$<classbody><super>),
-                                        :named('isa') ) )
-            if $<classbody><super>;
-
-        $class_stmts.push(QAST::Op.new(
-                              :op('bind'),
-                              QAST::Var.new( :name($ins_name), :scope('lexical'), :decl('var') ),
-                              $new_type,
-                          ));
-
-        # Add methods.
-        my $class_var := QAST::Var.new( :name($ins_name), :scope('lexical') );
-
-        for @*METHODS {
-            my $name := $_.name;
-
-            $class_stmts.push(QAST::Op.new(
-                :op('callmethod'), :name('add_method'),
-                QAST::Op.new( :op('how'), $class_var ),
-                $class_var,
-                QAST::SVal.new( :value($name) ),
-                QAST::BVal.new( :value($_) ))
-            );
-        }
-
-        make $class_stmts;
-    }
-
-    method classbody($/) {
-        $*CUR_BLOCK.push($<stmtlist>.ast);
-        $*CUR_BLOCK.blocktype('immediate');
-        make $*CUR_BLOCK;
-    }
-
     method stmt:sym<EXPR>($/) { make $<EXPR>.ast; }
 
     method term:sym<infix=>($/) {
@@ -397,20 +279,6 @@ class Lilikoi::Actions is HLL::Actions {
                                           $<var>.ast,
                                           $<EXPR>.ast
                             ));
-    }
-
-    method value:sym<string>($/) {
-        make $<strings>.ast;
-    }
-
-    method strings($/) {
-        make $<strings>
-            ?? QAST::Op.new( :op('concat'), $<string>.ast, $<strings>.ast)
-            !! $<string>.ast;
-    }
-
-    method string($/) {
-        make $<quote_EXPR>.ast;
     }
 
     method value:sym<heredoc>($/) {
@@ -567,9 +435,10 @@ class Lilikoi::Actions is HLL::Actions {
         make QAST::Op.new(:op<takeclosure>, $*CUR_BLOCK );
     }
 
+    method term:sym<lambda>($/) { make $<closure>.ast }
+
     method closure2($/) { self.closure($/) }
 
-    method term:sym<lambda>($/) { make $<closure>.ast }
 
     method template-chunk($/) {
         my $text := QAST::Stmts.new( :node($/) );
