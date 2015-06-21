@@ -12,6 +12,7 @@ grammar Lilikoi::Grammar is HLL::Grammar {
   proto token value {*}
   token id { <-[\d\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]> <-[\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]>* }
   token var { <id> }
+  token declare { <id> }
   token value:sym<var> { <var> }
   token value:sym<nil>     { <sym> }
   token value:sym<true>    { <sym> }
@@ -26,21 +27,7 @@ grammar Lilikoi::Grammar is HLL::Grammar {
   proto rule func {*}
   rule func:sym<def> {
     :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
-    :my %sym-save := nqp::clone(%*SYM);
-    :my $*DEF;
-    '(' 'def' <id> ~ ')' <defbody> {
-        %sym-save{$*DEF} := %*SYM{$*DEF};
-        %*SYM := %sym-save;
-    }
-  }
-
-  rule defbody {
-      <id> {
-          $*DEF := ~$<id>;
-          %*SYM{$*DEF} := 'func';
-      }
-      <exp>
-  }
+    '(' 'def' <declare> <exp> ')' }
 
   rule func:sym<fn> {
     :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
@@ -73,13 +60,10 @@ grammar Lilikoi::Grammar is HLL::Grammar {
 
   rule func:sym<call> {
     :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
-    '(' <var> ~ ')' <call-args=.series>
+    '(' <var> ~ ')' <series>
   }
 
   rule series  { <exp>* }
-
-  rule vector { '[' ~ ']' <series> }
-  rule hashmap { '{' ~ '}' <series> }
 
   proto token comment {*}
   token comment:sym<line>   { ';' [ \N* ] }
@@ -89,9 +73,9 @@ grammar Lilikoi::Grammar is HLL::Grammar {
 
   proto rule exp {*}
 
-  rule exp:sym<vector> { <vector> }
-  rule exp:sym<set>  { '#{' ~ '}' <series> }
-  rule exp:sym<hash>  { <hashmap> }
+  rule value:sym<vector> { '[' ~ ']' <series> }
+  rule value:sym<set>  { '#{' ~ '}' <series> }
+  rule value:sym<hash>  { '{' ~ '}' <series> }
 
   rule exp:sym<func> { <func> }
   rule exp:sym<value> { <value> }
@@ -105,6 +89,7 @@ class Lilikoi::Actions is HLL::Actions {
       $*CUR_BLOCK.push($<sexplist>.ast);
       make QAST::CompUnit.new( $*CUR_BLOCK );
   }
+
   method sexplist($/) {
       my $stmts := QAST::Stmts.new( :node($/) );
 
@@ -116,7 +101,6 @@ class Lilikoi::Actions is HLL::Actions {
 
       make $stmts;
   }
-
 
   method exp:sym<value>($/) { make $<value>.ast; }
 
@@ -150,8 +134,8 @@ class Lilikoi::Actions is HLL::Actions {
     make QAST::Var.new( :name($name), :scope('lexical') );
   }
 
-  method func:sym<def>($/) {
-    my $name  := ~$<var>;
+  method declare($/) {
+    my $name  := ~$<id>;
     my $block := $*CUR_BLOCK;
     my $decl := 'var';
 
@@ -166,10 +150,20 @@ class Lilikoi::Actions is HLL::Actions {
     make QAST::Var.new( :name($name), :scope('lexical') );
   }
 
+  method func:sym<def>($/) {
+    make QAST::Op.new(
+            :op<bind>,
+            $<declare>.ast),
+            $<exp>.ast
+      );
+  }
+
   method value:sym<var>($/) { make $<var>.ast }
 
   method closure($/) {
-    $*CUR_BLOCK.name(~$<id>);
+    if $<id> {
+      $*CUR_BLOCK.name(~$<id>);
+    }
     $*CUR_BLOCK.push($<sexplist>.ast);
     make QAST::Op.new(:op<takeclosure>, $*CUR_BLOCK );
   }
@@ -177,16 +171,11 @@ class Lilikoi::Actions is HLL::Actions {
   method func:sym<fn>($/) { make $<closure>.ast }
 
   method param($/) {
-     my $var := QAST::Var.new(
-         :name(~$<ident>), :scope('lexical'), :decl('param')
-        );
-     $var.named(~$<ident>)
-         if $<named>;
+    my $var := QAST::Var.new(
+      :name(~$<id>), :scope('lexical'), :decl('param')
+    );
 
-     $*CUR_BLOCK.symbol('self', :declared(1));
-
-     $var.default( $<EXPR>.ast )
-        if $<EXPR>;
+    # $*CUR_BLOCK.symbol('self', :declared(1)); # not sure if needed
 
      make $var;
   }
@@ -208,118 +197,31 @@ class Lilikoi::Actions is HLL::Actions {
       }
   }
 
-
-
-    method code-block($/) { make $<closure>.ast }
-
     method func:sym<call>($/) {
-        my $name  := ~$<operation>;
+        my $name  := ~$<var>;
 
         my $call := QAST::Op.new( :op('call'), :name($name) );
 
-        if $<call-args> {
+        if $<series> {
             $call.push($_)
-                for $<call-args>.ast;
-        }
-
-        $call.push( $<code-block>.ast )
-            if $<code-block>;
-
-        make $call;
-    }
-
-    method term:sym<nqp-op>($/) {
-        my $op := ~$<ident>;
-        my $call := QAST::Op.new( :op($op) );
-
-        if $<call-args> {
-            $call.push($_)
-                for $<call-args>.ast;
+                for $<series>.ast;
         }
 
         make $call;
-    }
-
-    method call-args($/) {
-        my @args;
-        @args.push($_.ast) for $<arg>;
-        make @args;
-    }
-
-    method arg:sym<expr>($/) {
-        make $<EXPR>.ast
-    }
-
-    method arg:sym<func>($/) {
-        make $<EXPR>.ast
-    }
-
-    method arg:sym<keyw>($/) {
-        my $arg := $<EXPR>.ast;
-        $arg.named( ~$<ident> );
-        make $arg;
-    }
-
-    method arg:sym<hash>($/) {
-        my $args := QAST::Op.new( :op<hash> );
-
-        $args.push( $_.ast )
-            for $<EXPR>;
-
-        make $args;
-    }
-
-    method stmt:sym<EXPR>($/) { make $<EXPR>.ast; }
-
-    method term:sym<infix=>($/) {
-        my $op := $<OPER><O><op>;
-        make  QAST::Op.new( :op('bind'),
-                            $<var>.ast,
-                            QAST::Op.new( :op($op),
-                                          $<var>.ast,
-                                          $<EXPR>.ast
-                            ));
-    }
-
-    method value:sym<heredoc>($/) {
-        make $<heredoc>.ast
-    }
-
-    method heredoc:sym<literal>($/) {
-        make QAST::SVal.new( :value( ~$<text> ) );
-    }
-
-    method heredoc-line($/) { make QAST::SVal.new( :value(~$/) ) }
-
-    method heredoc:sym<interp>($/) {
-        my $value := QAST::SVal.new( :value('') );
-
-        $value := QAST::Op.new( :op<concat>, $value, $_.ast)
-            for $<text>;
-
-        make $value;
-    }
-
-    method value:sym<integer>($/) {
-        make QAST::IVal.new( :value(+$/.Str) )
-    }
-
-    method value:sym<float>($/) {
-        make QAST::NVal.new( :value(+$/.Str) )
     }
 
     method series($/) {
         my @list;
-        if $<EXPR> {
-            @list.push($_.ast) for $<EXPR>
+        if $<exp> {
+            @list.push($_.ast) for $<exp>
         }
         make @list;
     }
 
-    method value:sym<array>($/) {
-        my $array := QAST::Op.new( :op<list> );
-        $array.push($_) for $<series>.ast;
-        make $array;
+    method value:sym<vector>($/) {
+        my $vector := QAST::Op.new( :op<list> );
+        $vector.push($_) for $<series>.ast;
+        make $vector;
     }
 
     method term:sym<quote-words>($/) {
@@ -332,6 +234,14 @@ class Lilikoi::Actions is HLL::Actions {
         make $hash;
     }
 
+    method value:sym<set>($/) {
+        my $hash := QAST::Op.new( :op<hash> );
+        for $<series>.ast {
+          $hash.push($_);
+          $hash.push(QAST::IVal.new( :value<1> ).ast);
+        }
+        make $hash;
+    }
     method value:sym<nil>($/) {
         make QAST::Op.new( :op<null> );
     }
