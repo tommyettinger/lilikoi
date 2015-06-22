@@ -151,7 +151,7 @@ grammar Lilikoi::Grammar is HLL::Grammar {
   token comment:sym<line>   { ';' [ \N* ] }
   token comment:sym<discard> { '#_' <.exp> }
 
-  token ws { <!after <id>> <!before <id>> [ \s | ',' | <.comment> ]* }
+  token ws { <!after <.id> > <!before <.id> > [ \s | ',' | <.comment> ]* }
 
   proto rule exp {*}
 
@@ -175,16 +175,19 @@ class Lilikoi::Actions is HLL::Actions {
   method sexplist($/) {
       my $stmts := QAST::Stmts.new( :node($/) );
 
-      if $<exp> {
-          for $<exp> {
-              $stmts.push($_.ast)
-          }
-      }
+      #if $<exp> {
+          $stmts.push($_.ast)
+            for @<exp>;
+      #}
 
       make $stmts;
   }
 
   method exp:sym<value>($/) { make $<value>.ast; }
+
+  method exp:sym<func>($/) {
+      make $<func>.ast;
+  }
 
   method value:sym<int>($/) {
     my $value := $<integer>.ast;
@@ -228,10 +231,13 @@ class Lilikoi::Actions is HLL::Actions {
       $ast.annotate('sink', $regex);
       make $ast;
   }
-  method var($/) {
-    my $name  := ~$<var>;
 
-    make QAST::Var.new( :name($name), :scope('lexical') );
+  method id($/) {
+      make ~$/.ast;
+  }
+
+  method var($/) {
+    make QAST::Var.new( :name(~$<id>), :scope('lexical') );
   }
 
   method declare($/) {
