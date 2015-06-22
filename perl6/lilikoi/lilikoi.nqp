@@ -1,16 +1,36 @@
 use NQPHLL;
+use QRegex;
 
 grammar Lilikoi::Grammar is HLL::Grammar {
   # Credit here goes to https://github.com/tokuhirom/Perl6-Renshu
-  token TOP {
-      :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
-      :my $*TOP_BLOCK   := $*CUR_BLOCK;
-      ^ ~ $ <sexplist>
-          || <.panic('Syntax error')>
+  method TOP() {
+      my %*LANG;
+      %*LANG<Regex>         := NQP::Regex;
+      %*LANG<Regex-actions> := NQP::RegexActions;
+      %*LANG<MAIN>          := Lilikoi::Grammar;
+      %*LANG<MAIN-actions>  := Lilikoi::Actions;
+      my $file := nqp::getlexdyn('$?FILES');
+      my $source_id := nqp::sha1(self.target()) ~
+          (%*COMPILING<%?OPTIONS><stable-sc> ?? '' !! '-' ~ ~nqp::time_n());
+      my $*W := nqp::isnull($file) ??
+          NQP::World.new(:handle($source_id)) !!
+          NQP::World.new(:handle($source_id), :description($file));
+      my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+      my $*TOP_BLOCK   := $*CUR_BLOCK;
+      self.comp_unit;
+  }
+  token comp_unit {
+    <.outerctx>
+    <sexplist>
+    [ $ || <.panic: 'Syntax error'> ]
+
   }
 
   proto token value {*}
-  token id { <-[\d\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]> <-[\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\~\,\s\/]>* }
+  token id {
+    <-[\d\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\s\/`@,~:\^\.]>
+    <-[\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\s\/`@,~:\^\.]>*
+  }
   token var { <id> }
   token declare { <id> }
   token value:sym<var> { <var> }
@@ -21,13 +41,32 @@ grammar Lilikoi::Grammar is HLL::Grammar {
   token value:sym<int> { $<sign>=[<[+\-]>?] <integer> }
   token value:sym<dec> { $<sign>=[<[+\-]>?] <dec_number> }
   token value:sym<string> { <interstr> | <str> }
+
   token interstr { '#' <?[\c[QUOTATION MARK]]> <quote_EXPR: ':qq'> }
   token str { <?[\c[QUOTATION MARK]]> <quote_EXPR: ':q'> }
 
-  proto rule func {*}
+  token newpad { <?> }
+  token outerctx { <?> }
+
+  token value:sym</ />  {
+      '/'
+      <.newpad>
+      :my %*RX;
+      <p6regex=.LANG('Regex','nibbler')>
+      '/'
+  }
+
+  proto token func {*}
   rule func:sym<def> {
     :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
-    '(' 'def' <declare> <exp> ')' }
+    '('
+    'def'
+    <declare> {
+        %*SYM{~$<declare>} := 'var'
+    }
+    <exp>
+    ')'
+  }
 
   rule func:sym<fn> {
     :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
@@ -52,6 +91,27 @@ grammar Lilikoi::Grammar is HLL::Grammar {
       }
   }
 
+  rule func:sym<let> {
+    :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+    '(' 'let' ~ ')' <letbody>
+  }
+
+  rule letbody {
+      [ '[' ~ ']' <bindings> ]
+      <sexplist>
+  }
+
+  rule bindings {
+      [ <bindpair> ] +
+  }
+
+  token bindpair {
+      <declare> {
+          %*SYM{~$<declare>} := 'var'
+      }
+      <exp>
+  }
+
   # (if cond then else)
   rule func:sym<if> {
     :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
@@ -63,13 +123,35 @@ grammar Lilikoi::Grammar is HLL::Grammar {
     '(' <var> ~ ')' <series>
   }
 
+  token func:sym<nqp-op> {
+    :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+    '(' <.ws> 'nqp::'<id> <.ws> <series> <.ws> ')'
+  }
+
+  rule func:sym<while> {
+    :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+    '(' 'while' <exp> <series> ')'
+  }
+
+  rule func:sym<foreach> {
+    :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
+    '('
+    'foreach'
+    '['
+    <id>  {
+        %*SYM{~$<id>} := 'var'
+    }
+    <exp>
+    ']'
+    <series>
+  }
   rule series  { <exp>* }
 
   proto token comment {*}
   token comment:sym<line>   { ';' [ \N* ] }
   token comment:sym<discard> { '#_' <.exp> }
 
-  token ws { <!after <variable>> <!before <variable>> [\s | ',' | <.comment> ]* }
+  token ws { <!after <id>> <!before <id>> [ \s | ',' | <.comment> ]* }
 
   proto rule exp {*}
 
@@ -105,10 +187,14 @@ class Lilikoi::Actions is HLL::Actions {
   method exp:sym<value>($/) { make $<value>.ast; }
 
   method value:sym<int>($/) {
+    my $value := $<integer>.ast;
+    if ~$<sign> eq '-' { $value := -$value; }
     make QAST::IVal.new( :value(+$/.Str) )
   }
 
   method value:sym<dec>($/) {
+    my $value := $<dec_number>.ast;
+    if ~$<sign> eq '-' { $value := -$value; }
     make QAST::NVal.new( :value(+$/.Str) )
   }
 
@@ -116,18 +202,32 @@ class Lilikoi::Actions is HLL::Actions {
     make $<quote_EXPR>.ast;
   }
 
-  method value:sym<nil>($/) {
-    make QAST::Op.new( :op<null> );
+  method newpad($/) {
+      $*W.push_lexpad($/)
   }
 
-  method value:sym<true>($/) {
-    make QAST::IVal.new( :value<1> );
-  }
+  method value:sym</ />($/) {
+      my $block := $*W.pop_lexpad();
+      $block[0].push(QAST::Var.new(:name<self>, :scope<lexical>, :decl<param>));
+      $block[0].push(QAST::Op.new(
+          :op('bind'),
+          QAST::Var.new(:name<self>, :scope<local>, :decl('var') ),
+          QAST::Var.new( :name<self>, :scope('lexical') )));
+      $block[0].push(QAST::Var.new(:name<$¢>, :scope<lexical>, :decl('var')));
+      $block[0].push(QAST::Var.new(:name<$/>, :scope<lexical>, :decl('var')));
+      $block.symbol('$¢', :scope<lexical>);
+      $block.symbol('$/', :scope<lexical>);
 
-  method value:sym<false>($/) {
-    make QAST::IVal.new( :value<0> );
-  }
+      my $regex := %*LANG<Regex-actions>.qbuildsub($<p6regex>.ast, $block);
+      my $ast := QAST::Op.new(
+          :op<callmethod>, :name<new>,
+          lexical_package_lookup(['NQPRegex'], $/),
+          $regex);
 
+      # In sink context, we don't need the Regex::Regex object.
+      $ast.annotate('sink', $regex);
+      make $ast;
+  }
   method var($/) {
     my $name  := ~$<var>;
 
@@ -153,22 +253,22 @@ class Lilikoi::Actions is HLL::Actions {
   method func:sym<def>($/) {
     make QAST::Op.new(
             :op<bind>,
-            $<declare>.ast),
+            $<declare>.ast,
             $<exp>.ast
-      );
+    );
   }
 
   method value:sym<var>($/) { make $<var>.ast }
 
-  method closure($/) {
+  method func:sym<fn>($/) { make $<fnbody>.ast }
+
+  method func:sym<fnbody>($/) {
     if $<id> {
       $*CUR_BLOCK.name(~$<id>);
     }
     $*CUR_BLOCK.push($<sexplist>.ast);
     make QAST::Op.new(:op<takeclosure>, $*CUR_BLOCK );
   }
-
-  method func:sym<fn>($/) { make $<closure>.ast }
 
   method param($/) {
     my $var := QAST::Var.new(
@@ -197,174 +297,129 @@ class Lilikoi::Actions is HLL::Actions {
       }
   }
 
-    method func:sym<call>($/) {
-        my $name  := ~$<var>;
+  method func:sym<let>($/) { make $<letbody>.ast }
 
-        my $call := QAST::Op.new( :op('call'), :name($name) );
+  method func:sym<letbody>($/) {
+    make $<sexplist>.ast;
+  }
+  method bindings($/) {
+      my @bindpairs;
 
-        if $<series> {
-            $call.push($_)
-                for $<series>.ast;
-        }
+      @bindpairs.push($_.ast)
+          for @<bindpair>;
+  }
 
-        make $call;
+  method bindpair($/) {
+    make QAST::Op.new(
+            :op<bind>,
+            $<declare>.ast,
+            $<exp>.ast
+    );
+  }
+
+  method func:sym<call>($/) {
+      my $name  := ~$<var>;
+
+      my $call := QAST::Op.new( :op('call'), :name($name) );
+
+      if $<series> {
+          $call.push($_)
+              for $<series>.ast;
+      }
+
+      make $call;
+  }
+
+  method func:sym<nqp-op>($/) {
+      my $op := ~$<id>;
+      my $call := QAST::Op.new( :op($op) );
+
+      if $<series> {
+          $call.push($_)
+              for $<series>.ast;
+      }
+
+      make $call;
+  }
+  # also credited to https://github.com/tokuhirom/Perl6-Renshu
+  method func:sym<if>($/) {
+    my $op := QAST::Op.new(
+        :op<if>,
+        block_immediate(QAST::Block.new($<exp>[0].ast)),
+        block_immediate(QAST::Block.new($<exp>[1].ast)),
+        :node($/)
+    );
+    if nqp::elems($<exp>) == 3 {
+        $op.push(block_immediate(QAST::Block.new($<exp>[2].ast)));
     }
-
-    method series($/) {
-        my @list;
-        if $<exp> {
-            @list.push($_.ast) for $<exp>
-        }
-        make @list;
+    make $op;
+  }
+  # Ref. src/NQP/Actions.nqp
+  sub block_immediate($block) {
+    $block.blocktype('immediate');
+    unless $block.symtable() {
+        my $stmts := QAST::Stmts.new( :node($block.node) );
+        for $block.list { $stmts.push($_); }
+        $block := $stmts;
     }
+    $block;
+  }
 
-    method value:sym<vector>($/) {
-        my $vector := QAST::Op.new( :op<list> );
-        $vector.push($_) for $<series>.ast;
-        make $vector;
-    }
+  method series($/) {
+      my @list;
+      if $<exp> {
+          @list.push($_.ast) for $<exp>
+      }
+      make @list;
+  }
 
-    method term:sym<quote-words>($/) {
-        make $<quote_EXPR>.ast;
-    }
+  method value:sym<vector>($/) {
+      my $vector := QAST::Op.new( :op<list> );
+      $vector.push($_) for $<series>.ast;
+      make $vector;
+  }
 
-    method value:sym<hash>($/) {
-        my $hash := QAST::Op.new( :op<hash> );
-        $hash.push($_) for $<series>.ast;
-        make $hash;
-    }
+  method value:sym<hash>($/) {
+      my $hash := QAST::Op.new( :op<hash> );
+      $hash.push($_) for $<series>.ast;
+      make $hash;
+  }
 
-    method value:sym<set>($/) {
-        my $hash := QAST::Op.new( :op<hash> );
-        for $<series>.ast {
-          $hash.push($_);
-          $hash.push(QAST::IVal.new( :value<1> ).ast);
-        }
-        make $hash;
-    }
-    method value:sym<nil>($/) {
-        make QAST::Op.new( :op<null> );
-    }
+  method value:sym<set>($/) {
+      my $hash := QAST::Op.new( :op<hash> );
+      for $<series>.ast {
+        $hash.push($_);
+        $hash.push(QAST::IVal.new( :value<1> ).ast);
+      }
+      make $hash;
+  }
+  method value:sym<nil>($/) {
+      make QAST::Op.new( :op<null> );
+  }
 
-    method value:sym<true>($/) {
-        make QAST::IVal.new( :value<1> );
-    }
+  method value:sym<true>($/) {
+      make QAST::IVal.new( :value<1> );
+  }
 
-    method value:sym<false>($/) {
-        make QAST::IVal.new( :value<0> );
-    }
-
-    method interp($/) { make $<stmtlist>.ast }
-    method quote_escape:sym<#{ }>($/) { make $<interp>.ast }
-    method circumfix:sym<( )>($/) { make $<EXPR>.ast }
-
-    # todo: proper type objects
-    our %call-tab;
-    BEGIN {
-        %call-tab := nqp::hash(
-            'call', 'call',
-            'nil?', 'isnull'
-        )
-    }
-
-    method postfix:sym<.>($/) {
-        my $op := %call-tab{ ~$<operation> };
-        my $meth_call := $op
-            ?? QAST::Op.new( :op($op) )
-            !! QAST::Op.new( :op('callmethod'), :name(~$<operation>) );
-
-        if $<call-args> {
-            $meth_call.push($_) for $<call-args>.ast;
-        }
-
-        make $meth_call;
-    }
-
-    method postcircumfix:sym<[ ]>($/) {
-        make QAST::Var.new( :scope('positional'), $<EXPR>.ast );
-    }
-
-    method postcircumfix:sym<{ }>($/) {
-        make QAST::Var.new( :scope('associative'), $<EXPR>.ast );
-    }
-
-    method postcircumfix:sym<ang>($/) {
-        make QAST::Var.new( :scope('associative'), $<quote_EXPR>.ast );
-    }
-
-    method xblock($/) {
-        make QAST::Op.new( $<EXPR>.ast, $<stmtlist>.ast, :node($/) );
-    }
-
-    method stmt:sym<cond>($/) {
-        my $ast := $<xblock>.ast;
-        $ast.op( ~$<op> );
-        $ast.push( $<else>.ast )
-            if $<else>;
-
-        make $ast;
-    }
-
-    method elsif($/) {
-        my $ast := $<xblock>.ast;
-        $ast.op( 'if' );
-        $ast.push( $<else>.ast )
-            if $<else>;
-
-        make $ast;
-    }
-
-    method else($/) {
-        make $<stmtlist>.ast
-    }
-
-    method stmt:sym<loop>($/) {
-        make QAST::Op.new( $<EXPR>.ast, $<do-block>.ast, :op(~$<op>), :node($/) );
-    }
-
-    method stmt:sym<for>($/) {
-
-        my $block := QAST::Block.new(
-            QAST::Var.new( :name(~$<ident>), :scope('lexical'), :decl('param')),
-            $<do-block>.ast,
-            );
-
-        make QAST::Op.new( $<EXPR>.ast, $block, :op('for'), :node($/) );
-    }
-
-    method do-block($/) {
-        make  $<stmtlist>.ast
-    }
-
-    method term:sym<code>($/) {
-        make $<stmtlist>.ast;
-    }
-
-    method closure($/) {
-        $*CUR_BLOCK.push($<stmtlist>.ast);
-        make QAST::Op.new(:op<takeclosure>, $*CUR_BLOCK );
-    }
-
-    method term:sym<lambda>($/) { make $<closure>.ast }
-
-    method closure2($/) { self.closure($/) }
+  method value:sym<false>($/) {
+      make QAST::IVal.new( :value<0> );
+  }
 
 
-    method template-chunk($/) {
-        my $text := QAST::Stmts.new( :node($/) );
-        $text.push( QAST::Op.new( :op<print>, $_.ast ) )
-            for $<template-nibble>;
 
-        make $text;
-    }
 
-    method template-nibble:sym<interp>($/) {
-        make $<interp>.ast
-    }
+  method func:sym<while>($/) {
+      make QAST::Op.new( $<exp>.ast, $<series>.ast, :op('while'), :node($/) );
+  }
 
-    method template-nibble:sym<literal>($/) {
-        make QAST::SVal.new( :value(~$/) );
-    }
+  method func:sym<foreach>($/) {
+    my $block := QAST::Block.new(
+      QAST::Var.new( :name(~$<id>), :scope('lexical'), :decl('param')),
+      $<series>.ast,
+    );
+
+    make QAST::Op.new( $<exp>.ast, $block, :op('for'), :node($/) );
+  }
 
 }
 
