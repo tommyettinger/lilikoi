@@ -28,8 +28,8 @@ grammar Lilikoi::Grammar is HLL::Grammar {
 
   proto token value {*}
   token id {
-    <-[\d\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\s\/`@,~:\^\.]>
-    <-[\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\s\/`@,~:\^\.]>*
+    <-[\d\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\s\/`@,~\:\^\.]>
+    <-[\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\s\/`@,~\:\^\.]>*
   }
   token var { <id> }
   token declare { <id> }
@@ -123,14 +123,14 @@ grammar Lilikoi::Grammar is HLL::Grammar {
     '(' <var> ~ ')' <series>
   }
 
-  token func:sym<nqp-op> {
+  rule func:sym<nqp-op> {
     :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
-    '(' <.ws> 'nqp::'<id> <.ws> <series> <.ws> ')'
+    '(' '.' <id> ~ ')'  <series>
   }
 
   rule func:sym<while> {
     :my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
-    '(' 'while' <exp> <series> ')'
+    '(' 'while' <exp> ~ ')' <series>
   }
 
   rule func:sym<foreach> {
@@ -143,17 +143,24 @@ grammar Lilikoi::Grammar is HLL::Grammar {
     }
     <exp>
     ']'
+    ~
+    ')'
     <series>
   }
-  rule series  { <exp>* }
+  rule series  { [ <exp> ] * }
 
   proto token comment {*}
   token comment:sym<line>   { ';' [ \N* ] }
   token comment:sym<discard> { '#_' <.exp> }
 
-  token ws { <!after <.id> > <!before <.id> > [ \s | ',' | <.comment> ]* }
+  #token ws { <!after <.id> > <!before <.id> > [ \s | ',' | <.comment> ]* }
+  token ws {
+    [ \s
+    | ','
+    | <.comment>
+    ]* }
 
-  proto rule exp {*}
+  proto token exp {*}
 
   rule value:sym<vector> { '[' ~ ']' <series> }
   rule value:sym<set>  { '#{' ~ '}' <series> }
@@ -167,7 +174,7 @@ grammar Lilikoi::Grammar is HLL::Grammar {
 
 class Lilikoi::Actions is HLL::Actions {
 
-  method TOP($/) {
+  method comp_unit($/) {
       $*CUR_BLOCK.push($<sexplist>.ast);
       make QAST::CompUnit.new( $*CUR_BLOCK );
   }
@@ -175,10 +182,10 @@ class Lilikoi::Actions is HLL::Actions {
   method sexplist($/) {
       my $stmts := QAST::Stmts.new( :node($/) );
 
-      #if $<exp> {
+      if $<exp> {
           $stmts.push($_.ast)
             for @<exp>;
-      #}
+      }
 
       make $stmts;
   }
@@ -202,6 +209,16 @@ class Lilikoi::Actions is HLL::Actions {
   }
 
   method value:sym<string>($/) {
+    make $<interstr>
+        ?? $<interstr>.ast
+        !! $<str>.ast;
+  }
+
+  method str($/) {
+    make $<quote_EXPR>.ast;
+  }
+
+  method interstr($/) {
     make $<quote_EXPR>.ast;
   }
 
@@ -330,7 +347,7 @@ class Lilikoi::Actions is HLL::Actions {
 
       if $<series> {
           $call.push($_)
-              for $<series>.ast;
+              for @<series>.ast;
       }
 
       make $call;
@@ -342,7 +359,7 @@ class Lilikoi::Actions is HLL::Actions {
 
       if $<series> {
           $call.push($_)
-              for $<series>.ast;
+              for @<series>.ast;
       }
 
       make $call;
@@ -374,7 +391,7 @@ class Lilikoi::Actions is HLL::Actions {
   method series($/) {
       my @list;
       if $<exp> {
-          @list.push($_.ast) for $<exp>
+          @list.push($_.ast) for @<exp>
       }
       make @list;
   }
@@ -432,6 +449,7 @@ class Lilikoi::Actions is HLL::Actions {
 class Lilikoi::Compiler is HLL::Compiler {
 
     method eval($code, *@_args, *%adverbs) {
+        say($code);
         my $output := self.compile($code, :compunit_ok(1), |%adverbs);
 
         if %adverbs<target> eq '' {
@@ -443,7 +461,6 @@ class Lilikoi::Compiler is HLL::Compiler {
 
             $output := $output();
         }
-
         $output;
     }
 }
