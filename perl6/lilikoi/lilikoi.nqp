@@ -15,6 +15,8 @@ grammar Lilikoi::Grammar is HLL::Grammar {
       my $*W := nqp::isnull($file) ??
           NQP::World.new(:handle($source_id)) !!
           NQP::World.new(:handle($source_id), :description($file));
+      my %*SYM;                # symbols in current scope
+      my $*GENSYM_CTR := 11111;
       my $*CUR_BLOCK := QAST::Block.new(QAST::Stmts.new());
       my $*TOP_BLOCK   := $*CUR_BLOCK;
       self.comp_unit;
@@ -27,9 +29,14 @@ grammar Lilikoi::Grammar is HLL::Grammar {
   }
 
   proto token value {*}
-  token id {
+  token autogensym { '@'  }
+  token ident {
     <-[\d\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\s\/`@,~\:\^\.]>
     <-[\c[APOSTROPHE]\c[QUOTATION MARK]\c[NUMBER SIGN]\{\}\(\)\[\]\s\/`@,~\:\^\.]>*
+  }
+  token id {
+    <ident>
+    <autogensym>?
   }
   token var { <id> }
   token declare { <id> }
@@ -149,6 +156,11 @@ grammar Lilikoi::Grammar is HLL::Grammar {
   }
   rule series  { [ <exp> ] * }
 
+  rule func:sym<quote> { "'" <exp> }
+  rule func:sym<unquote> { '~' <exp> }
+  rule func:sym<backtick> { '`' <exp> }
+  rule func:sym<meta> { '^' <exp> <exp> }
+
   proto token comment {*}
   token comment:sym<line>   { ';' [ \N* ] }
   token comment:sym<discard> { '#_' <.exp> }
@@ -249,10 +261,29 @@ class Lilikoi::Actions is HLL::Actions {
       make $ast;
   }
 
-  method id($/) {
-      make ~$/.ast;
+  method ident($/) {
+    make ~$/.ast;
   }
 
+  method id($/) {
+    $*GENSYM_CTR++;
+    my $i := ~$<ident>;
+
+    if $<autogensym> {
+      my $block := $*CUR_BLOCK;
+      my %sym  := $block.symbol($i ~ '@');
+      if !%sym<declared> {
+        $block.symbol($i ~ '@', :declared(1), :scope('lexical') );
+        my $i2 := $i ~ '-_-' ~ $*GENSYM_CTR;
+        $block.symbol($i ~ '@', :truename($i2) );
+        $i := $i2;
+      }
+      else {
+        $i := %sym{'truename'}
+      }
+    }
+    make $i.ast;
+  }
   method var($/) {
     make QAST::Var.new( :name(~$<id>), :scope('lexical') );
   }
@@ -438,8 +469,7 @@ class Lilikoi::Actions is HLL::Actions {
   method func:sym<foreach>($/) {
     my $block := QAST::Block.new(
       QAST::Var.new( :name(~$<id>), :scope('lexical'), :decl('param')),
-      $<series>.ast,
-    );
+      $<series>.ast );
 
     make QAST::Op.new( $<exp>.ast, $block, :op('for'), :node($/) );
   }
