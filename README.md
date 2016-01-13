@@ -1,110 +1,57 @@
-# lilikoi
+Lilikoi
+===
 
-## a little lisp-y programming language
+Lilikoi is an experiment that's trying to add various features to the Lua programming language, targeting LuaJIT.
+It uses the LuaJIT Language Toolkit to generate LuaJIT-2.1-compatible bytecode.
 
-Lilikoi is a brand-new programming language that is heavily inspired by
-[Clojure](http://clojure.org), but with less emphasis on immutability,
-and more drawn from array programming languages. It translates to
-LuaJIT's dialect of Lua, and can interoperate with Lua code.
+Goals
+---
 
-## EXAMPLES
+ * Macros
+   * Start with textual substitution, replacing words with snippets of code before executing.
+   * Move on to AST manipulation, repeatedly performing a stage of macroexpansion to fully replace any macros in source code with the resulting modified AST in generated code.
+ * Use some techniques from functional programming, preferring naming conventions from Clojure but offering mutable variants on functions.
+   * We don't want too much ASCII soup, though. One-word, all-English-letter names are preferred; if another word is needed, it is separated with an underscore. Capital letters are used as suffixes much like `!` and `?` are in Clojure.
+   * `map`, `reduce`, and `filter` should all be present and usable by default, and aliases (using macros) can be used to ensure they don't overlap with existing variable names if so desired.
+     * `mapM` and `filterM` mutate the collection (singular) they are called on. A `M` suffix should be reserved for `M`utable functions that act like the non-suffixed function, but mutate one or more arguments.
+     * Similarly, an `I` suffix is for `I`mmutable functions that act like a mutable-by-default non-suffixed function, but return a new and different value instead of mutating their argument.
+     * A `Q` suffix is for `Q`uery functions that return a true or false value based on the contents of their argument; essentially, a predicate, which would be suffixed with `?` in Clojure.
+     * There is no equivalent to Clojure's `!` because it means "unsafe during transactions" there, and since we aren't doing anything on multiple threads, we don't want the cruft involved with transactions.
+     * You should never see any overlap between these suffixes, though suffix conventions may be added in the future that overlap with `M` or `I`; in that case, suffixes are always added in alphabetical order.
+ * Use some techniques from array programming, preferring the behavior of the J programming language but staying far away from its naming conventions.
+   * J has a concept of "rank" for both functions (which it calls verbs, for good reason) and collections (which are pretty much always arrays as far as I can tell).
+     * The rank of a collection essentially boils down to how many dimensions the array has, or in a broader sense, how many indices are required to get a scalar from the collection. Scalars, like the number 42, have rank 0.
+   * The seq abstraction from Clojure is solid gold. Being able to treat multiple varieties of sequential data as a uniform data structure is extremely useful in practice.
+     * However, Lua has less data structures. There's obviously tables (which are fantastic), but on top of that, strings can be considered sequences of characters (or I suppose length-1 strings here), and LuaJIT adds FFI arrays and potentially more.
+     * It would be nice to be able to use the seq abstraction for multi-dimensional rectangular data.
+       * One way this could work is if you have a number of keys equal to the data's rank, you get a scalar, but if you have less keys, you get another rectangular sequence (if you have all but one needed key, then a column of a 2D array or a plane of a 3D array).
+     * Tables can be used to implement numerically-indexed arrays, but they are almost always jagged arrays (you could insert an element into what was a rectangular array, and unless the metatable forbids it, you now have a jagged array).
+     * FFI arrays can be rectangular, but could also use C pointers to make a jagged array anyway.
+     * The behavior of APL and J in regards to unassigned indices (or reshaping an existing array to a larger amount of total elements) is to give the (nth modulo number of values) value in the array if the nth unassigned value is requested, doing a "wraparound".
+     * This is good in many ways, in particular for the exploratory programming that APL and J are exceptional at, but should have a way to be overridden.
+     * N-dimensional arrays probably require some variant on an existing data structure to have efficient lookup of arbitrary dimensions and to have the "wraparound" behavior, possibly using metatables or possibly defined with FFI types.
+   * J calls its functions "verbs" because it also has "adverbs" that modify an existing function's behavior. This can be extremely hard to follow if used improperly, but if it isn't overused it could be very good to have.
+     * An idea I'm exploring is to allow functions to declare a "pad" in their body using a prefixed `@name` (where `name` is an unused identifier) before a token.
+     * This allows callers of the function to replace the contents of the pad token with a different value if they specify one with a "drop" at the call site using `!name value!`,
+       where `name` is the same as in the pad, and should be in documentation if exposed, and value is what you want to replace the pad token with (evaluated at the call site). Drops can be chained and only need one `!` separating drops, such as `!a 1!b 2!`
+       * If the function is: `function shift(point, x_move, y_move) return {x = point.x + x_move * @x_mult 1, y = point.y + y_move * @y_mult 1} end` ...
+       * Then you could call this with: `local pt = {x = 0, y = 0} ; local pt2 = shift ! x_mult 10 ! y_mult 5 ! (pt, 2, 3)` to make a point where x is 20 (0 + 2 * 10) and y is 15 (0 + 3 * 5).
+       * You could also call this and omit any or all drops, such as with: `local pt = {x = 0, y = 0} ; local pt2 = shift !x_mult 10! (pt, 2, 3)` to make a point where x is 20 (0 + 2 * 10) and y is 3 (0 + 3 * 1).
+     * Internally, this would replace the pad token with a conditional that checks the pad's name in local scope for a value, using that value if it exists or the default if it doesn't.
+     * The drop syntax creates a `do` block around the call site that defines the specified names locally, allowing them to be read as upvalues at the pad site.
 
-Much of this is likely to change, but currently you can (starting from the
-simplest)...
-* Do basic arithmetic:
-  
-  `(+ 1 2 3)` returns 6.
-
-* Define functions:
-  
-  `((fn half-pow [x y] (/ (pow x y) 2)) 10 3)` creates and immediately calls a fn, returning `500`.
-   The name is optional.
-  
-  `((fn add-half ([x y] (+ x (/ y 2))) ([x & ys] (+ x (/ (reduce + ys) 2)))) 10 1 2 3)` creates and immediately calls a fn with multiple argument lists, uses the second fn body with the variable-length arglist `[x & ys]`, and returns `13`.
-  
-* Use functional programming techniques:
-  
-  `(reduce * [2 3 4 5])` returns the result of multiplying all the elements in the vector, `120`
-  
-  `(reductions * [2 3 4 5])` returns a table as a list, `{2, 6, 24, 120}`
-
-  Clojure-style macros are being developed now.
-  
-## SETUP
-
-This repo uses multigit (scripts are included) to pull in its dependencies
-into the same folder. run `mgit clone-all` on Windows or `./mgit clone-all`
-on Mac or Linux to download all dependencies, including LuaJIT, into the
-current folder. You can use `mgit --all pull` on Windows or
-`./mgit --all pull` on Mac or Linux to update. Thanks to the LuaPower project
-for all their hard work!
-
-## Lua API
-
-### `local lil = require'lilikoi'`
------------------------------------------- ----------------------
-`lil.translate(code) -> str | nil,err`  translate to lua
-`lil.run(code) -> value | nil,err`           run code directly
------------------------------------------- ----------------------
-
-### `lil.translate(code) -> str | nil,err`
-
-Translates a piece of lilikoi code, given as a string, to a string
-of lua code as a result.
-Raises an error if it fails.
-
-### `lil.run(code) -> value | nil,err`
-
-Translates a piece of lilikoi code, given as a string, to lua and
-immediately evaluates that lua code, returning whatever the last form in
-the code evaluates to, if it succeeds. Raises an error if it fails.
-
-## FAQ
+FAQ
+---
 
  * What does the name mean?
  * Lilikoi is the Hawaiian word for passionfruit,
    and I had just eaten some excellent passionfruit ice cream when I started
    thinking about ways to solve some core design challenges of this language.
    Also, it's a lil' language.
- * Any credits to mention?
- * Lewis Campbell came up with the original idea of a curried stack language,
-   and that inspired the first design of lilikoi. Even though it later became
-   difficult to understand the subtleties of the syntax it used, and I switched
-   to using Lisp's prefix notation, implementing the original idea showed me
-   that it isn't as hard as I thought to make a programming language.
-   Joshua Day, Risto Saarelma, Derrick Creamer, and the other helpful folk
-   of #rgrd helped clarify many rough patches in the language idea.
-   Alan Malloy, Gary Fredericks, Justin Smith, and the rest of the wonderful
-   #clojure community also have contributed in various ways to me being able
-   to make this. Peter Keller has been an invaluable aid as well; having
-   access to the experience of someone who has already implemented multiple
-   Lisps has been humbling, and I am grateful to everyone who's contributed
-   in any way.
 
-## LICENSE
+Current Status
+---
 
-This is free and unencumbered software released into the public domain.
+Currently Lilikoi is vaporware (or to polish that up a bit, "pre-alpha").
 
-Anyone is free to copy, modify, publish, use, compile, sell, or
-distribute this software, either in source code form or as a compiled
-binary, for any purpose, commercial or non-commercial, and by any
-means.
-
-In jurisdictions that recognize copyright laws, the author or authors
-of this software dedicate any and all copyright interest in the
-software to the public domain. We make this dedication for the benefit
-of the public at large and to the detriment of our heirs and
-successors. We intend this dedication to be an overt act of
-relinquishment in perpetuity of all present and future rights to this
-software under copyright law.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-OTHER DEALINGS IN THE SOFTWARE.
-
-For more information, please refer to [the Unlicense site](http://unlicense.org)
-
+It uses the LuaJIT Language Toolkit, which is itself in beta.

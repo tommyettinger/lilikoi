@@ -31,33 +31,10 @@ luac.out
 *.so.*
 *.dylib
 
-# Executables
-*.exe
-*.out
-*.app
+# Some Executables
 *.i*86
 *.x86_64
 *.hex
-
-# multigit checkout
-.mgit/*/
-bin/**
-csrc/**
-media/**
-jit/**
-lpeg/**
-socket/**
-syscall/**
-/*.dasl
-/*.lua
-/*.md
-!README.md
-!lilikoi.md
-!lilikoi.lua
-!lilikoi_test.lua
-!fun.lua
-
-langtoolkit/**
 
 # jEdit garbage
 *~
