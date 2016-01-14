@@ -219,6 +219,14 @@ local function parse_return(ast, ls, line)
     return ast:return_stmt(exps, line)
 end
 
+local function parse_define(ast, ls, line)
+  local whole = ls.tokenval
+  local first, last, nm = string.find(whole, "define%s+(%S+)")
+  local no1, no2, rest = string.find(whole, "%s+([^\n\r;]+)%s*", last + 1)
+  ls:next()
+  ls.macros[nm] = rest
+  return ast:local_decl({nm}, {}, line)
+end
 -- Parse numeric 'for'.
 local function parse_for_num(ast, ls, varname, line)
     lex_check(ls, '=')
@@ -433,6 +441,8 @@ local function parse_stmt(ast, ls)
     local stmt
     if ls.token == 'TK_if' then
         stmt = parse_if(ast, ls, line)
+    elseif ls.token == 'TK_define' then
+        stmt = parse_define(ast, ls, line)
     elseif ls.token == 'TK_while' then
         stmt = parse_while(ast, ls, line)
     elseif ls.token == 'TK_do' then

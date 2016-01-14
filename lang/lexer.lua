@@ -9,7 +9,7 @@ local ASCII_A, ASCII_Z = 65, 90
 
 local END_OF_STREAM = -1
 
-local ReservedKeyword = {['and'] = 1, ['break'] = 2, ['do'] = 3, ['else'] = 4, ['elseif'] = 5, ['end'] = 6, ['false'] = 7, ['for'] = 8, ['function'] = 9, ['goto'] = 10, ['if'] = 11, ['in'] = 12, ['local'] = 13, ['nil'] = 14, ['not'] = 15, ['or'] = 16, ['repeat'] = 17, ['return'] = 18, ['then'] = 19, ['true'] = 20, ['until'] = 21, ['while'] = 22 }
+local ReservedKeyword = {['and'] = 1, ['break'] = 2, ['do'] = 3, ['else'] = 4, ['elseif'] = 5, ['end'] = 6, ['false'] = 7, ['for'] = 8, ['function'] = 9, ['goto'] = 10, ['if'] = 11, ['in'] = 12, ['local'] = 13, ['nil'] = 14, ['not'] = 15, ['or'] = 16, ['repeat'] = 17, ['return'] = 18, ['then'] = 19, ['true'] = 20, ['until'] = 21, ['while'] = 22, ['define'] = 23 }
 
 local uint64, int64 = ffi.typeof('uint64_t'), ffi.typeof('int64_t')
 local complex = ffi.typeof('complex')
@@ -363,6 +363,20 @@ local function read_string(ls, delim)
     return get_string(ls, 1, 1)
 end
 
+local function read_line(ls)
+    while ls.current ~= '\n' and ls.current ~= '\r' and ls.current ~= ';' do
+        local c = ls.current
+        if c == END_OF_STREAM then
+          return get_string(ls, 0, 0)
+        elseif c == '\\' then
+            read_escape_char(ls)
+        else
+            save_and_next(ls)
+        end
+    end
+    return get_string(ls, 0, 0)
+end
+
 local function skip_line(ls)
     while not curr_is_newline(ls) and ls.current ~= END_OF_STREAM do
         savespace_and_next(ls)
@@ -381,9 +395,17 @@ local function llex(ls)
                 save_and_next(ls)
             until not char_isident(ls.current)
             local s = get_string(ls, 0, 0)
+            local m = ls.macros[s]
+            if m and ReservedKeyword[m] then
+              s = m
+            end
             local reserved = ReservedKeyword[s]
             if reserved then
-                return 'TK_' .. s
+                if s == 'define' then
+                  return 'TK_define', read_line(ls)
+                else
+                  return 'TK_' .. s
+                end
             else
                 return 'TK_name', s
             end
@@ -497,7 +519,8 @@ local function lex_setup(read_func, chunkname)
         lastline = 1,
         read_func = read_func,
         chunkname = chunkname,
-        space_buf = ''
+        space_buf = '',
+        macros = {}
     }
     nextchar(ls)
     if ls.current == '\xef' and ls.n >= 2 and

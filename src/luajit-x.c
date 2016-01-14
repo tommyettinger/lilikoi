@@ -120,7 +120,7 @@ static int docall(lua_State *L, int narg, int clear)
 
 static void print_version(void)
 {
-  fputs("LuaJIT Language Toolkit frontend.\n", stdout);
+  fputs("Lilikoi Programming Language, using LuaJIT\n", stdout);
   fputs(LUAJIT_VERSION " -- " LUAJIT_COPYRIGHT ". " LUAJIT_URL "\n", stdout);
 }
 
