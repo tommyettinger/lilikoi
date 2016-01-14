@@ -584,7 +584,7 @@ local function bc_magic_header(input)
     local f, err = io.open(input, "rb")
     check(f, "cannot open ", err)
     local header = f:read(4)
-    local match = (header == string.char(0x1b, 0x4c, 0x4a, 0x01))
+    local match = (header == string.char(0x1b, 0x4c, 0x4a, 0x02))
     f:close()
     return match
 end

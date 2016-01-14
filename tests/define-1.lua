@@ -1,10 +1,12 @@
-
 define fn function
+define k end
+define things 3, 7
+print(things)
 
-local a, b = 3, 7
+local a, b = things
 
-local fn foo(k)
-    return 2*k + 1
-end
+local fn foo(j)
+    return 2*j + b
+k
 
 print(foo(a))

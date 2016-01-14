@@ -22,7 +22,7 @@ local BCDUMP = {
 
     -- If you perform *any* kind of private modifications to the bytecode itself
     -- or to the dump format, you *must* set BCDUMP_VERSION to 0x80 or higher.
-    VERSION = 1,
+    VERSION = 0x02,
 
     -- Compatibility flags.
     F_BE    = 0x01,
@@ -713,7 +713,9 @@ local function bcread_proto(ls, target)
 end
 
 local function bcread_header(ls, target)
-    if bcread_byte(ls) ~= BCDUMP.HEAD2 or bcread_byte(ls) ~= BCDUMP.HEAD3 or bcread_byte(ls) ~= BCDUMP.VERSION then
+  local h2, h3, ver = bcread_byte(ls), bcread_byte(ls), bcread_byte(ls)
+    if h2 ~= BCDUMP.HEAD2 or h3 ~= BCDUMP.HEAD3 or ver ~= BCDUMP.VERSION then
+        print("bad h2: " .. h2 .. ", bad h3: " .. h3 .. ", bad version: " .. ver)
         error("invalid header")
     end
     action(target, "header", ls)

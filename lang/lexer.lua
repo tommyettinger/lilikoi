@@ -105,6 +105,14 @@ local function nextchar(ls)
     return c
 end
 
+local function replacebuf(ls, remove, insert)
+    local data, n, p = ls.data, ls.n, ls.p
+    ls.p = p - #remove - 1
+    ls.n = n + #insert + 3
+    ls.data = strsub(data, 1, ls.p - 1) .. ' ' .. insert .. ' ' .. strsub(data, p - 1)
+    nextchar(ls)
+  end
+
 local function curr_is_newline(ls)
     local c = ls.current
     return (c == '\n' or c == '\r')
@@ -386,6 +394,7 @@ end
 local function llex(ls)
     resetbuf(ls)
     while true do
+      ::LEX_START::
         local current = ls.current
         if char_isident(current) then
             if char_isdigit(current) then -- Numeric literal.
@@ -396,13 +405,25 @@ local function llex(ls)
             until not char_isident(ls.current)
             local s = get_string(ls, 0, 0)
             local m = ls.macros[s]
-            if m and ReservedKeyword[m] then
-              s = m
+            if m then
+              if ReservedKeyword[m] then
+                s = m
+              else
+                resetbuf(ls)
+                replacebuf(ls, s, m)
+                goto LEX_START
+              end
             end
             local reserved = ReservedKeyword[s]
             if reserved then
                 if s == 'define' then
-                  return 'TK_define', read_line(ls)
+                    --print('DEFINING. STARTING POSITION: ' .. ls.p)
+                    local whole = read_line(ls)
+                    --print('ENDING POSITION: ' .. ls.p)
+                    local first, last, nm = string.find(whole, "define%s+(%S+)")
+                    local no1, no2, rest = string.find(whole, "%s*([^\n\r;]+)[%s;]*", last + 1)
+                    ls.macros[nm] = rest
+                    return 'TK_define'
                 else
                   return 'TK_' .. s
                 end

@@ -220,12 +220,13 @@ local function parse_return(ast, ls, line)
 end
 
 local function parse_define(ast, ls, line)
-  local whole = ls.tokenval
-  local first, last, nm = string.find(whole, "define%s+(%S+)")
-  local no1, no2, rest = string.find(whole, "%s+([^\n\r;]+)%s*", last + 1)
+--  local whole = ls.tokenval
+--  local first, last, nm = string.find(whole, "define%s+(%S+)")
+--  local no1, no2, rest = string.find(whole, "%s+([^\n\r;]+)%s*", last + 1)
   ls:next()
-  ls.macros[nm] = rest
-  return ast:local_decl({nm}, {}, line)
+--  ls.macros[nm] = rest
+--  return ast:local_decl({nm}, {}, line)
+  return false
 end
 -- Parse numeric 'for'.
 local function parse_for_num(ast, ls, varname, line)
@@ -480,7 +481,7 @@ local function parse_stmt(ast, ls)
     end
     -- If here 'stmt' is "nil" then ls.token didn't match any of the previous rules.
     -- Fall back to call/assign rule.
-    if not stmt then
+    if stmt == nil then
         stmt = parse_call_assign(ast, ls)
     end
     return stmt, false
@@ -521,7 +522,9 @@ local function parse_block_stmts(ast, ls)
     local body = { }
     while not islast and not EndOfBlock[ls.token] do
         stmt, islast = parse_stmt(ast, ls)
-        body[#body + 1] = stmt
+        if(stmt) then 
+          body[#body + 1] = stmt
+        end
         lex_opt(ls, ';')
     end
     return body, firstline, ls.linenumber
