@@ -31,14 +31,7 @@ Goals
      * This is good in many ways, in particular for the exploratory programming that APL and J are exceptional at, but should have a way to be overridden.
      * N-dimensional arrays probably require some variant on an existing data structure to have efficient lookup of arbitrary dimensions and to have the "wraparound" behavior, possibly using metatables or possibly defined with FFI types.
    * J calls its functions "verbs" because it also has "adverbs" that modify an existing function's behavior. This can be extremely hard to follow if used improperly, but if it isn't overused it could be very good to have.
-     * An idea I'm exploring is to allow functions to declare a "pad" in their body using a prefixed `@name` (where `name` is an unused identifier) before a token.
-     * This allows callers of the function to replace the contents of the pad token with a different value if they specify one with a "drop" at the call site using `!name value!`,
-       where `name` is the same as in the pad, and should be in documentation if exposed, and value is what you want to replace the pad token with (evaluated at the call site). Drops can be chained and only need one `!` separating drops, such as `!a 1!b 2!`
-       * If the function is: `function shift(point, x_move, y_move) return {x = point.x + x_move * @x_mult 1, y = point.y + y_move * @y_mult 1} end` ...
-       * Then you could call this with: `local pt = {x = 0, y = 0} ; local pt2 = shift ! x_mult 10 ! y_mult 5 ! (pt, 2, 3)` to make a point where x is 20 (0 + 2 * 10) and y is 15 (0 + 3 * 5).
-       * You could also call this and omit any or all drops, such as with: `local pt = {x = 0, y = 0} ; local pt2 = shift !x_mult 10! (pt, 2, 3)` to make a point where x is 20 (0 + 2 * 10) and y is 3 (0 + 3 * 1).
-     * Internally, this would replace the pad token with a conditional that checks the pad's name in local scope for a value, using that value if it exists or the default if it doesn't.
-     * The drop syntax creates a `do` block around the call site that defines the specified names locally, allowing them to be read as upvalues at the pad site.
+     * There was something about pads and drops here but it was essentially re-implementing optional parameters with worse syntax and behavior.
 
 FAQ
 ---

@@ -19,25 +19,27 @@
 #
 
 ifneq (,$(findstring Windows,$(OS)))
-  HOST_SYS= Windows
+	HOST_SYS= Windows
 else
-  HOST_SYS:= $(shell uname -s)
-  ifneq (,$(findstring CYGWIN,$(TARGET_SYS)))
-    HOST_SYS= Windows
-  else ifeq (Darwin,$(HOST_SYS))
-    LFLAGS += -pagezero_size 10000 -image_base 100000000
-  endif
+	HOST_SYS:= $(shell uname -s)
+	ifneq (,$(findstring CYGWIN,$(TARGET_SYS)))
+		HOST_SYS= Windows
+	else ifeq (Darwin,$(HOST_SYS))
+		LFLAGS += -pagezero_size 10000 -image_base 100000000
+	endif
 endif
 
 AR= ar rcu
 RANLIB= ranlib
 
 ifeq ($(HOST_SYS),Windows)
-  LUAJIT_CFLAGS := -IC:/fra/local/include
-  LUAJIT_LIBS := -LC:/fra/local/lib -llua51
+	LUAJIT_CFLAGS := -I./LuaJIT-2.1/local/include
+	LUAJIT_LIBS := -L./LuaJIT-2.1/local/lib -llua51
+	TARGETS = liblang.a
 else
-  LUAJIT_CFLAGS := $(shell pkg-config luajit --cflags)
-  LUAJIT_LIBS := $(shell pkg-config luajit --libs)
+	LUAJIT_CFLAGS := $(shell pkg-config luajit --cflags)
+	LUAJIT_LIBS := $(shell pkg-config luajit --libs)
+	TARGETS = liblang.a
 endif
 
 CFLAGS = -g -Wall
@@ -52,8 +54,6 @@ LANG_OBJ_FILES := $(LANG_SRC_FILES:%.c=%.o)
 DEP_FILES := $(LANG_SRC_FILES:%.c=.deps/%.P)
 
 DEPS_MAGIC := $(shell mkdir .deps > /dev/null 2>&1 || :)
-
-TARGETS = liblang.a
 
 all: $(TARGETS) luajit-x
 
