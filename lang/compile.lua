@@ -21,6 +21,8 @@ local function lang_toolkit_error(msg)
     end
 end
 
+local state = {macros = {}}
+
 local function compile(reader, filename, options)
     local generator
     if options and options.code then
@@ -29,7 +31,11 @@ local function compile(reader, filename, options)
         generator = require('lang.generator')
     end
     local ls = lex_setup(reader, filename)
+    for k, v in pairs(state.macros) do
+      ls.macros[k] = v
+    end
     local parse_success, tree = pcall(parse, ast, ls)
+    state.macros = ls.macros
     if not parse_success then
         return lang_toolkit_error(tree)
     end
